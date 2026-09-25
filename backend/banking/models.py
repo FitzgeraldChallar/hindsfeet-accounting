@@ -50,7 +50,8 @@ class BankAccount(models.Model):
     )
 
     currency = models.CharField(
-        max_length=10,
+        max_length=3,
+        choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")],
         default="USD",
     )
 
@@ -173,6 +174,20 @@ class BankTransaction(models.Model):
         decimal_places=2,
     )
 
+    currency = models.CharField(
+        max_length=3,
+        choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")],
+        default="USD",
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000")
+    )
+
+    functional_amount = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
     transaction_date = models.DateField()
 
     reference = models.CharField(
@@ -231,6 +246,11 @@ class BankTransaction(models.Model):
                     "Bank account must belong "
                     "to the same company."
                 )
+
+        if self.bank_account_id and self.currency != self.bank_account.currency:
+            raise ValidationError(
+                "Bank transaction currency must match the bank account currency."
+            )
 
         if self.journal_entry_id:
             if (

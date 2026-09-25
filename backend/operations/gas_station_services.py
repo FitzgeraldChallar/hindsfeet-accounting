@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
 
+from companies.currency_service import CompanyCurrencyService
+
 from accounting.models import Account
 from accounting.services import AccountingService
 
@@ -11,6 +13,7 @@ from .models import (
     Inventory,
     InventoryTransaction,
     Product,
+    ProductPrice,
     PumpAttendant,
     PumpSale,
 )
@@ -45,6 +48,7 @@ class GasStationService:
         *,
         company,
         payment_method,
+        currency=None,
     ):
         """
         Returns the accounting account that receives
@@ -64,6 +68,7 @@ class GasStationService:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -78,6 +83,7 @@ class GasStationService:
         company,
         code,
         name,
+        currency=None,
     ):
         """
         Safely retrieve a required accounting account.
@@ -87,6 +93,7 @@ class GasStationService:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -112,6 +119,8 @@ class GasStationService:
         reference="",
         notes="",
         complete=True,
+        currency=None,
+        exchange_rate=None,
     ):
         """
         Record a fuel sale from a specific pump.
@@ -132,6 +141,14 @@ class GasStationService:
 
         GasStationService._validate_gas_station_company(
             company
+        )
+
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency or company.currency
+        )
+        exchange_rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=currency, to_currency=company.currency,
+            effective_date=sale_date, supplied_rate=exchange_rate,
         )
 
         if attendant.company_id != company.id:
@@ -211,6 +228,8 @@ class GasStationService:
 
         pump_sale = PumpSale.objects.create(
             company=company,
+            currency=currency,
+            exchange_rate=exchange_rate,
             attendant=attendant,
             pump=pump,
             fuel_product=fuel_product,
@@ -311,7 +330,15 @@ class GasStationService:
                 f"{pump_sale.litres_sold}."
             )
 
-        unit_cost = product.cost_price
+        price_profile = ProductPrice.objects.filter(
+            product=product, currency=pump_sale.currency, is_active=True
+        ).first()
+        if not price_profile:
+            raise ValueError(
+                f"No active {pump_sale.currency} price profile exists for {product.name}. "
+                "Configure the currency-specific fuel price before completing the sale."
+            )
+        unit_cost = price_profile.cost_price
 
         total_cost = (
             pump_sale.litres_sold * unit_cost
@@ -348,6 +375,8 @@ class GasStationService:
             ),
             transaction_date=pump_sale.sale_date,
             created_by=user,
+            currency=pump_sale.currency,
+            exchange_rate=pump_sale.exchange_rate,
         )
 
         payment_account = (
@@ -356,6 +385,7 @@ class GasStationService:
                 payment_method=(
                     pump_sale.payment_method
                 ),
+                currency=pump_sale.currency,
             )
         )
 
@@ -364,6 +394,7 @@ class GasStationService:
                 company=company,
                 code="4000",
                 name="Sales Revenue",
+                currency=pump_sale.currency,
             )
         )
 
@@ -372,6 +403,7 @@ class GasStationService:
                 company=company,
                 code="5000",
                 name="Cost of Goods Sold",
+                currency=pump_sale.currency,
             )
         )
 
@@ -380,6 +412,7 @@ class GasStationService:
                 company=company,
                 code="1200",
                 name="Inventory",
+                currency=pump_sale.currency,
             )
         )
 
@@ -436,6 +469,8 @@ class GasStationService:
             transaction_date=pump_sale.sale_date,
             created_by=user,
             lines=journal_lines,
+            currency=pump_sale.currency,
+            exchange_rate=pump_sale.exchange_rate,
             post=True,
         )
 

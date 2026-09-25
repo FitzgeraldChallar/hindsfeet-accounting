@@ -65,6 +65,33 @@ function getList(data) {
 }
 
 
+function normalizeCurrency(value) {
+  const code = String(value || "").trim().toUpperCase();
+  return code || "USD";
+}
+
+function getPaymentCurrency(payment, fallback = "USD") {
+  return normalizeCurrency(
+    payment?.currency ||
+      payment?.payment_currency ||
+      fallback
+  );
+}
+
+function filterInvoicesByCurrency(invoices, currency) {
+  const target = normalizeCurrency(currency);
+  return (Array.isArray(invoices) ? invoices : []).filter(
+    (invoice) => normalizeCurrency(invoice?.currency) === target
+  );
+}
+
+function filterPaymentsByCurrency(payments, currency) {
+  const target = normalizeCurrency(currency);
+  return (Array.isArray(payments) ? payments : []).filter(
+    (payment) => getPaymentCurrency(payment, target) === target
+  );
+}
+
 function toNumber(value) {
   const number = Number(value);
 
@@ -80,15 +107,13 @@ function formatMoney(
 ) {
   const amount = toNumber(value);
 
-  return new Intl.NumberFormat(
+  return `${normalizeCurrency(currency)} ${new Intl.NumberFormat(
     "en-US",
     {
-      style: "currency",
-      currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }
-  ).format(amount);
+  ).format(amount)}`;
 }
 
 
@@ -484,6 +509,7 @@ function PageHeader({
 
 function CompanyStrip({
   currentCompany,
+  workspaceCurrency,
 }) {
   return (
     <div className="ar-company-strip">
@@ -498,9 +524,10 @@ function CompanyStrip({
       <div className="ar-company-divider" />
 
       <div className="ar-company-item">
-        <span>FUNCTIONAL CURRENCY</span>
+        <span>WORKSPACE CURRENCY</span>
         <strong>
-          {currentCompany?.currency ||
+          {workspaceCurrency ||
+            currentCompany?.currency ||
             "USD"}
         </strong>
       </div>
@@ -523,6 +550,7 @@ function Dashboard({
   payments,
   customers,
   currentCompany,
+  workspaceCurrency,
   navigate,
 }) {
   const metrics = useMemo(() => {
@@ -590,8 +618,11 @@ function Dashboard({
   }, [invoices, payments]);
 
   const currency =
-    currentCompany?.currency ||
-    "USD";
+    normalizeCurrency(
+      workspaceCurrency ||
+        currentCompany?.currency ||
+        "USD"
+    );
 
   const recentInvoices =
     [...invoices]
@@ -810,8 +841,10 @@ function Dashboard({
                       +
                       {formatMoney(
                         payment.amount,
-                        payment.invoice_currency ||
+                        getPaymentCurrency(
+                          payment,
                           currency
+                        )
                       )}
                     </strong>
                   </div>
@@ -2037,8 +2070,10 @@ function ReceivableTransactions({
                   payment.amount
                 ),
               currency:
-                payment.invoice_currency ||
-                currency,
+                getPaymentCurrency(
+                  payment,
+                  currency
+                ),
             });
           }
         );
@@ -2448,6 +2483,7 @@ export default function AccountsReceivable() {
 
   const {
     currentCompany,
+    workspaceCurrency,
   } = useCompany();
 
   const [customers, setCustomers] =
@@ -2556,6 +2592,31 @@ export default function AccountsReceivable() {
     loadARData();
   }, [currentCompany?.id]);
 
+  const activeWorkspaceCurrency =
+    normalizeCurrency(
+      workspaceCurrency ||
+        currentCompany?.currency ||
+        "USD"
+    );
+
+  const workspaceInvoices = useMemo(
+    () =>
+      filterInvoicesByCurrency(
+        invoices,
+        activeWorkspaceCurrency
+      ),
+    [invoices, activeWorkspaceCurrency]
+  );
+
+  const workspacePayments = useMemo(
+    () =>
+      filterPaymentsByCurrency(
+        payments,
+        activeWorkspaceCurrency
+      ),
+    [payments, activeWorkspaceCurrency]
+  );
+
   const companyForStrip =
     useMemo(
       () => ({
@@ -2648,6 +2709,9 @@ export default function AccountsReceivable() {
         currentCompany={
           companyForStrip
         }
+        workspaceCurrency={
+          activeWorkspaceCurrency
+        }
       />
 
       {loading ? (
@@ -2670,11 +2734,14 @@ export default function AccountsReceivable() {
           {currentSection ===
             "dashboard" && (
             <Dashboard
-              invoices={invoices}
-              payments={payments}
+              invoices={workspaceInvoices}
+              payments={workspacePayments}
               customers={customers}
               currentCompany={
                 currentCompany
+              }
+              workspaceCurrency={
+                activeWorkspaceCurrency
               }
               navigate={navigate}
             />
@@ -2683,7 +2750,7 @@ export default function AccountsReceivable() {
           {currentSection ===
             "balances" && (
             <CustomerBalances
-              invoices={invoices}
+              invoices={workspaceInvoices}
               customers={customers}
               currentCompany={
                 currentCompany
@@ -2694,7 +2761,7 @@ export default function AccountsReceivable() {
           {currentSection ===
             "outstanding" && (
             <OutstandingInvoices
-              invoices={invoices}
+              invoices={workspaceInvoices}
               customers={customers}
               currentCompany={
                 currentCompany
@@ -2705,7 +2772,7 @@ export default function AccountsReceivable() {
           {currentSection ===
             "aging" && (
             <AgingReport
-              invoices={invoices}
+              invoices={workspaceInvoices}
               customers={customers}
               currentCompany={
                 currentCompany
@@ -2716,8 +2783,8 @@ export default function AccountsReceivable() {
           {currentSection ===
             "statements" && (
             <CustomerStatements
-              invoices={invoices}
-              payments={payments}
+              invoices={workspaceInvoices}
+              payments={workspacePayments}
               customers={customers}
               currentCompany={
                 currentCompany
@@ -2728,8 +2795,8 @@ export default function AccountsReceivable() {
           {currentSection ===
             "transactions" && (
             <ReceivableTransactions
-              invoices={invoices}
-              payments={payments}
+              invoices={workspaceInvoices}
+              payments={workspacePayments}
               customers={customers}
               currentCompany={
                 currentCompany

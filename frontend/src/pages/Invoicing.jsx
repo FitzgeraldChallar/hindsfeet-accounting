@@ -74,6 +74,88 @@ function getCurrencyCode(value) {
   return "USD";
 }
 
+function getHistoricalExchangeRate(
+  exchangeRates,
+  fromCurrency,
+  toCurrency,
+  effectiveDate
+) {
+  const from = getCurrencyCode(fromCurrency);
+  const to = getCurrencyCode(toCurrency);
+
+  if (!from || !to) return null;
+  if (from === to) return 1;
+
+  const targetDate = String(
+    effectiveDate || getToday()
+  );
+
+  const candidates = (Array.isArray(exchangeRates)
+    ? exchangeRates
+    : []
+  )
+    .filter((item) => item?.is_active !== false)
+    .filter((item) => {
+      if (!item?.effective_date) return true;
+      return String(item.effective_date) <= targetDate;
+    })
+    .sort((a, b) =>
+      String(b?.effective_date || "").localeCompare(
+        String(a?.effective_date || "")
+      )
+    );
+
+  const direct = candidates.find(
+    (item) =>
+      getCurrencyCode(item?.from_currency) === from &&
+      getCurrencyCode(item?.to_currency) === to
+  );
+
+  if (direct && Number(direct.rate) > 0) {
+    return Number(direct.rate);
+  }
+
+  const inverse = candidates.find(
+    (item) =>
+      getCurrencyCode(item?.from_currency) === to &&
+      getCurrencyCode(item?.to_currency) === from
+  );
+
+  if (inverse && Number(inverse.rate) > 0) {
+    return 1 / Number(inverse.rate);
+  }
+
+  return null;
+}
+
+
+function getPaymentCurrency(payment, fallbackCurrency = "USD") {
+  return getCurrencyCode(
+    payment?.currency ||
+      payment?.payment_currency ||
+      fallbackCurrency
+  );
+}
+
+function filterInvoicesByCurrency(invoices, currency) {
+  const target = getCurrencyCode(currency);
+
+  return (Array.isArray(invoices) ? invoices : []).filter(
+    (invoice) =>
+      getCurrencyCode(invoice?.currency) === target
+  );
+}
+
+function filterPaymentsByCurrency(payments, currency) {
+  const target = getCurrencyCode(currency);
+
+  return (Array.isArray(payments) ? payments : []).filter(
+    (payment) =>
+      getPaymentCurrency(payment, target) === target
+  );
+}
+
+
 function formatMoney(value, currency = "USD") {
   const amount = Number(value || 0);
 
@@ -414,7 +496,13 @@ function InvoiceListSection({
       const query =
         search.trim().toLowerCase();
 
-      return invoices.filter(
+      const currencyInvoices =
+        filterInvoicesByCurrency(
+          invoices,
+          currency
+        );
+
+      return currencyInvoices.filter(
         (invoice) => {
           const matchesSearch =
             !query ||
@@ -508,7 +596,8 @@ function InvoiceListSection({
             <h2>Invoices</h2>
 
             <p>
-              Create, review and manage customer invoices.
+              Create, review and manage{" "}
+              {getCurrencyCode(currency)} customer invoices.
             </p>
           </div>
 
@@ -895,6 +984,7 @@ function CreateInvoiceSection({
   products,
   sales,
   currency,
+  activeCurrencies,
   onSaved,
   onCancel,
 }) {
@@ -908,6 +998,8 @@ function CreateInvoiceSection({
         getToday(),
       customer:
         "",
+      currency:
+        currency,
       sale:
         "",
       discount:
@@ -942,7 +1034,10 @@ function CreateInvoiceSection({
   ) {
     setForm((current) => ({
       ...current,
-      [field]: value,
+      [field]:
+        field === "currency"
+          ? getCurrencyCode(value)
+          : value,
     }));
   }
 
@@ -1285,6 +1380,11 @@ function CreateInvoiceSection({
                 form.invoice_date,
               due_date:
                 form.due_date,
+              currency:
+                getCurrencyCode(
+                  form.currency ||
+                    currency
+                ),
               items:
                 form.items.map(
                   (item) => ({
@@ -1498,6 +1598,59 @@ function CreateInvoiceSection({
                       </option>
                     )
                   )}
+              </select>
+            </Field>
+
+            <Field
+              label="Invoice Currency"
+              required
+            >
+              <select
+                value={
+                  form.currency ||
+                  currency
+                }
+                onChange={(
+                  event
+                ) =>
+                  updateField(
+                    "currency",
+                    event.target.value
+                  )
+                }
+                required
+              >
+                {(Array.isArray(
+                  activeCurrencies
+                )
+                  ? activeCurrencies
+                      .filter(
+                        (item) =>
+                          item?.is_active !==
+                          false
+                      )
+                      .map((item) =>
+                        getCurrencyCode(
+                          item?.currency
+                        )
+                      )
+                      .filter(Boolean)
+                  : [currency]
+                )
+                  .filter(
+                    (value, index, array) =>
+                      array.indexOf(
+                        value
+                      ) === index
+                  )
+                  .map((code) => (
+                    <option
+                      key={code}
+                      value={code}
+                    >
+                      {code}
+                    </option>
+                  ))}
               </select>
             </Field>
           </div>
@@ -1785,7 +1938,8 @@ function CreateInvoiceSection({
                         lineTotal(
                           item
                         ),
-                        currency
+                        form.currency ||
+                          currency
                       )}
                     </strong>
                   </div>
@@ -1873,7 +2027,8 @@ function CreateInvoiceSection({
               <strong>
                 {formatMoney(
                   subtotal,
-                  currency
+                  form.currency ||
+                    currency
                 )}
               </strong>
             </div>
@@ -1932,7 +2087,8 @@ function CreateInvoiceSection({
               <strong>
                 {formatMoney(
                   estimatedTotal,
-                  currency
+                  form.currency ||
+                    currency
                 )}
               </strong>
             </div>
@@ -2381,89 +2537,222 @@ function CustomerPaymentModal({
   invoice,
   open,
   currency,
+  workspaceCurrency,
+  activeCurrencies,
+  exchangeRates,
   onClose,
   onSaved,
 }) {
-  const [form, setForm] =
-    useState({
-      amount: "",
-      payment_date:
-        getToday(),
-      payment_method:
-        "BANK",
-      reference:
-        "",
-      notes:
-        "",
-    });
+  const [form, setForm] = useState({
+    amount: "",
+    payment_date: getToday(),
+    payment_method: "BANK",
+    reference: "",
+    notes: "",
+  });
 
-  const [saving, setSaving] =
-    useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const invoiceCurrency = getCurrencyCode(
+    invoice?.currency || currency
+  );
+
+  const availablePaymentCurrencies = useMemo(() => {
+    const codes = (Array.isArray(activeCurrencies)
+      ? activeCurrencies
+          .filter((item) => item?.is_active !== false)
+          .map((item) => getCurrencyCode(item?.currency))
+      : []
+    ).filter(Boolean);
+
+    const workspaceCode = getCurrencyCode(
+      workspaceCurrency || currency
+    );
+
+    if (workspaceCode && !codes.includes(workspaceCode)) {
+      codes.unshift(workspaceCode);
+    }
+
+    if (!codes.length) {
+      codes.push(workspaceCode || invoiceCurrency);
+    }
+
+    return [...new Set(codes)];
+  }, [
+    activeCurrencies,
+    workspaceCurrency,
+    currency,
+    invoiceCurrency,
+  ]);
+
+  const [paymentCurrency, setPaymentCurrency] =
+    useState(
+      getCurrencyCode(
+        workspaceCurrency || currency
+      )
+    );
+
+  const paymentToInvoiceRate = getHistoricalExchangeRate(
+    exchangeRates,
+    paymentCurrency,
+    invoiceCurrency,
+    form.payment_date
+  );
+
+  const invoiceToPaymentRate =
+    paymentToInvoiceRate && paymentToInvoiceRate > 0
+      ? 1 / paymentToInvoiceRate
+      : null;
+
+  const invoiceBalance = Number(
+    invoice?.balance_due || 0
+  );
+
+  const maxPaymentAmount =
+    paymentToInvoiceRate && paymentToInvoiceRate > 0
+      ? invoiceBalance / paymentToInvoiceRate
+      : null;
+
+  const paymentAmount = Number(form.amount || 0);
+
+  const amountInInvoiceCurrency =
+    paymentToInvoiceRate && paymentAmount > 0
+      ? paymentAmount * paymentToInvoiceRate
+      : 0;
+
+  const remainingInvoiceBalance = Math.max(
+    invoiceBalance - amountInInvoiceCurrency,
+    0
+  );
 
   useEffect(() => {
     if (!open) return;
 
+    const nextInvoiceCurrency = getCurrencyCode(
+      invoice?.currency || currency
+    );
+
+    const nextPaymentCurrency = getCurrencyCode(
+      workspaceCurrency || currency
+    );
+
+    setPaymentCurrency(nextPaymentCurrency);
+
+    const nextRate = getHistoricalExchangeRate(
+      exchangeRates,
+      nextPaymentCurrency,
+      nextInvoiceCurrency,
+      getToday()
+    );
+
+    const nextBalance = Number(
+      invoice?.balance_due || 0
+    );
+
+    const fullPayment =
+      nextRate && nextRate > 0
+        ? nextBalance / nextRate
+        : nextBalance;
+
     setForm({
       amount:
-        invoice?.balance_due ??
-        "",
-      payment_date:
-        getToday(),
-      payment_method:
-        "BANK",
-      reference:
-        "",
-      notes:
-        "",
+        fullPayment > 0
+          ? fullPayment.toFixed(2)
+          : "",
+      payment_date: getToday(),
+      payment_method: "BANK",
+      reference: "",
+      notes: "",
     });
 
     setError("");
   }, [
     open,
-    invoice,
+    invoice?.id,
+    invoice?.balance_due,
+    invoice?.currency,
+    workspaceCurrency,
+    currency,
+    exchangeRates,
   ]);
 
   if (!invoice) {
     return null;
   }
 
-  function updateField(
-    field,
-    value
-  ) {
+  function updateField(field, value) {
     setForm((current) => ({
       ...current,
       [field]: value,
     }));
   }
 
-  async function handleSubmit(
-    event
-  ) {
+  function handlePaymentCurrencyChange(nextCurrency) {
+    const normalized = getCurrencyCode(nextCurrency);
+
+    if (!availablePaymentCurrencies.includes(normalized)) {
+      return;
+    }
+
+    setPaymentCurrency(normalized);
+
+    const rate = getHistoricalExchangeRate(
+      exchangeRates,
+      normalized,
+      invoiceCurrency,
+      form.payment_date
+    );
+
+    const balance = Number(
+      invoice?.balance_due || 0
+    );
+
+    const fullPayment =
+      rate && rate > 0
+        ? balance / rate
+        : balance;
+
+    setForm((current) => ({
+      ...current,
+      amount:
+        fullPayment > 0
+          ? fullPayment.toFixed(2)
+          : "",
+    }));
+
+    setError("");
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const amount =
-      Number(form.amount);
+    const amount = Number(form.amount);
+    const balance = Number(invoice.balance_due || 0);
 
-    const balance =
-      Number(
-        invoice.balance_due ||
-          0
-      );
-
-    if (amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       setError(
-        "Payment amount must be greater than zero."
+        `Payment amount must be greater than zero ${paymentCurrency ? `in ${paymentCurrency}` : ""}.`
       );
       return;
     }
 
-    if (amount > balance) {
+    if (!paymentToInvoiceRate || paymentToInvoiceRate <= 0) {
       setError(
-        "Payment cannot exceed the invoice balance."
+        `No historical exchange rate is available for ${paymentCurrency} → ${invoiceCurrency} on ${form.payment_date}. Configure an exchange rate in Settings → Currencies & Rates first.`
+      );
+      return;
+    }
+
+    const convertedAmount =
+      amount * paymentToInvoiceRate;
+
+    if (convertedAmount > balance + 0.000001) {
+      setError(
+        `Payment exceeds the invoice balance. Maximum payment is ${formatMoney(
+          maxPaymentAmount,
+          paymentCurrency
+        )} (${formatMoney(balance, invoiceCurrency)} equivalent).`
       );
       return;
     }
@@ -2472,31 +2761,23 @@ function CustomerPaymentModal({
     setError("");
 
     try {
-      const saved =
-        await api.post(
-          `/api/invoicing/customer-payments/create/`,
-          {
-            invoice:
-              invoice.id,
-            amount:
-              form.amount,
-            payment_date:
-              form.payment_date,
-            payment_method:
-              form.payment_method,
-            reference:
-              form.reference.trim(),
-            notes:
-              form.notes.trim(),
-          }
-        );
+      const saved = await api.post(
+        `/api/invoicing/customer-payments/create/`,
+        {
+          invoice: invoice.id,
+          amount: form.amount,
+          currency: paymentCurrency,
+          payment_date: form.payment_date,
+          payment_method: form.payment_method,
+          reference: form.reference.trim(),
+          notes: form.notes.trim(),
+        }
+      );
 
       await onSaved(saved);
       onClose();
     } catch (err) {
-      setError(
-        errorMessage(err)
-      );
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -2512,55 +2793,86 @@ function CustomerPaymentModal({
     >
       <div className="invoicing-payment-summary">
         <div>
-          <span>
-            Invoice Total
-          </span>
-
+          <span>Invoice Total</span>
           <strong>
             {formatMoney(
               invoice.total_amount,
-              invoice.currency ||
-                currency
+              invoiceCurrency
             )}
           </strong>
         </div>
 
         <div>
-          <span>
-            Balance Due
-          </span>
-
+          <span>Balance Due</span>
           <strong>
             {formatMoney(
               invoice.balance_due,
-              invoice.currency ||
-                currency
+              invoiceCurrency
             )}
+          </strong>
+        </div>
+      </div>
+
+      <div className="invoicing-payment-currency-banner">
+        <div>
+          <span>Payment currency</span>
+          <strong>{paymentCurrency}</strong>
+        </div>
+
+        <div>
+          <span>Invoice currency</span>
+          <strong>{invoiceCurrency}</strong>
+        </div>
+
+        <div>
+          <span>Exchange rate</span>
+          <strong>
+            {paymentToInvoiceRate
+              ? `1 ${paymentCurrency} = ${paymentToInvoiceRate.toFixed(6)} ${invoiceCurrency}`
+              : "Rate unavailable"}
           </strong>
         </div>
       </div>
 
       {error && (
         <div className="invoicing-form-error">
-          <AlertCircle
-            size={17}
-          />
-
-          <span>
-            {error}
-          </span>
+          <AlertCircle size={17} />
+          <span>{error}</span>
         </div>
       )}
 
       <form
         className="invoicing-form"
-        onSubmit={
-          handleSubmit
-        }
+        onSubmit={handleSubmit}
       >
         <div className="invoicing-form-grid">
           <Field
-            label="Payment Amount"
+            label="Payment Currency"
+            required
+          >
+            <select
+              value={paymentCurrency}
+              onChange={(event) =>
+                handlePaymentCurrencyChange(
+                  event.target.value
+                )
+              }
+            >
+              {availablePaymentCurrencies.map(
+                (code) => (
+                  <option
+                    key={code}
+                    value={code}
+                  >
+                    {code}
+                  </option>
+                )
+              )}
+            </select>
+          </Field>
+
+          <Field
+            label={`Payment Amount (${paymentCurrency})`}
             required
           >
             <input
@@ -2568,14 +2880,12 @@ function CustomerPaymentModal({
               min="0.01"
               step="0.01"
               max={
-                invoice.balance_due
+                maxPaymentAmount !== null
+                  ? maxPaymentAmount
+                  : undefined
               }
-              value={
-                form.amount
-              }
-              onChange={(
-                event
-              ) =>
+              value={form.amount}
+              onChange={(event) =>
                 updateField(
                   "amount",
                   event.target.value
@@ -2591,12 +2901,8 @@ function CustomerPaymentModal({
           >
             <input
               type="date"
-              value={
-                form.payment_date
-              }
-              onChange={(
-                event
-              ) =>
+              value={form.payment_date}
+              onChange={(event) =>
                 updateField(
                   "payment_date",
                   event.target.value
@@ -2610,45 +2916,26 @@ function CustomerPaymentModal({
             required
           >
             <select
-              value={
-                form.payment_method
-              }
-              onChange={(
-                event
-              ) =>
+              value={form.payment_method}
+              onChange={(event) =>
                 updateField(
                   "payment_method",
                   event.target.value
                 )
               }
             >
-              <option value="CASH">
-                Cash
-              </option>
-
-              <option value="BANK">
-                Bank
-              </option>
-
-              <option value="MOBILE_MONEY">
-                Mobile Money
-              </option>
-
-              <option value="CARD">
-                Card
-              </option>
+              <option value="CASH">Cash</option>
+              <option value="BANK">Bank</option>
+              <option value="MOBILE_MONEY">Mobile Money</option>
+              <option value="CARD">Card</option>
             </select>
           </Field>
 
           <Field label="Reference">
             <input
               type="text"
-              value={
-                form.reference
-              }
-              onChange={(
-                event
-              ) =>
+              value={form.reference}
+              onChange={(event) =>
                 updateField(
                   "reference",
                   event.target.value
@@ -2659,15 +2946,50 @@ function CustomerPaymentModal({
           </Field>
         </div>
 
+        <div className="invoicing-payment-conversion-preview">
+          <div>
+            <span>Payment entered</span>
+            <strong>
+              {formatMoney(
+                paymentAmount,
+                paymentCurrency
+              )}
+            </strong>
+          </div>
+
+          <div>
+            <span>Invoice amount covered</span>
+            <strong>
+              {formatMoney(
+                amountInInvoiceCurrency,
+                invoiceCurrency
+              )}
+            </strong>
+          </div>
+
+          <div>
+            <span>Remaining balance</span>
+            <strong>
+              {formatMoney(
+                remainingInvoiceBalance,
+                invoiceCurrency
+              )}
+            </strong>
+          </div>
+        </div>
+
+        {invoiceToPaymentRate &&
+          paymentCurrency !== invoiceCurrency && (
+            <div className="invoicing-payment-rate-note">
+              1 {invoiceCurrency} = {invoiceToPaymentRate.toFixed(6)} {paymentCurrency}
+            </div>
+          )}
+
         <Field label="Notes">
           <textarea
             rows="3"
-            value={
-              form.notes
-            }
-            onChange={(
-              event
-            ) =>
+            value={form.notes}
+            onChange={(event) =>
               updateField(
                 "notes",
                 event.target.value
@@ -2681,12 +3003,8 @@ function CustomerPaymentModal({
           <button
             type="button"
             className="invoicing-btn invoicing-btn-secondary"
-            onClick={
-              onClose
-            }
-            disabled={
-              saving
-            }
+            onClick={onClose}
+            disabled={saving}
           >
             Cancel
           </button>
@@ -2695,7 +3013,8 @@ function CustomerPaymentModal({
             type="submit"
             className="invoicing-btn invoicing-btn-primary"
             disabled={
-              saving
+              saving ||
+              !paymentToInvoiceRate
             }
           >
             {saving ? (
@@ -2704,15 +3023,11 @@ function CustomerPaymentModal({
                   size={16}
                   className="invoicing-spin"
                 />
-
                 Recording...
               </>
             ) : (
               <>
-                <CheckCircle2
-                  size={16}
-                />
-
+                <CheckCircle2 size={16} />
                 Record Payment
               </>
             )}
@@ -2722,7 +3037,6 @@ function CustomerPaymentModal({
     </Modal>
   );
 }
-
 
 // ============================================================
 // PAYMENTS SECTION
@@ -2743,11 +3057,17 @@ function PaymentsSection({
       const query =
         search.trim().toLowerCase();
 
+      const workspacePayments =
+        filterPaymentsByCurrency(
+          payments,
+          currency
+        );
+
       if (!query) {
-        return payments;
+        return workspacePayments;
       }
 
-      return payments.filter(
+      return workspacePayments.filter(
         (payment) =>
           [
             payment.reference,
@@ -2763,11 +3083,12 @@ function PaymentsSection({
       );
     }, [
       payments,
+      currency,
       search,
     ]);
 
   const totalPayments =
-    payments.reduce(
+    filteredPayments.reduce(
       (sum, payment) =>
         sum +
         Number(
@@ -2802,7 +3123,15 @@ function PaymentsSection({
           icon={Wallet}
           label="Invoices"
           value={
-            invoices.length
+            new Set(
+              payments.map((payment) =>
+                String(
+                  payment?.invoice?.id ??
+                    payment?.invoice ??
+                    ""
+                )
+              )
+            ).size
           }
           helper="Invoices linked to payments"
         />
@@ -3006,8 +3335,10 @@ function PaymentsSection({
                       <td className="invoicing-money">
                         {formatMoney(
                           payment.amount,
-                          payment.invoice_currency ||
+                          getPaymentCurrency(
+                            payment,
                             currency
+                          )
                         )}
                       </td>
                     </tr>
@@ -3474,8 +3805,10 @@ function StatementsSection({
                           <td className="invoicing-money">
                             {formatMoney(
                               payment.amount,
-                              payment.invoice_currency ||
+                              getPaymentCurrency(
+                                payment,
                                 currency
+                              )
                             )}
                           </td>
                         </tr>
@@ -3515,6 +3848,9 @@ export default function Invoicing() {
 
   const {
     currentCompany,
+    workspaceCurrency,
+    activeCurrencies,
+    exchangeRates,
   } = useCompany();
 
   const companyId =
@@ -3522,7 +3858,8 @@ export default function Invoicing() {
 
   const currency =
     getCurrencyCode(
-      currentCompany?.currency
+      workspaceCurrency ||
+        currentCompany?.currency
     );
 
   const pathParts =
@@ -3887,8 +4224,26 @@ export default function Invoicing() {
     }
   }
 
+  const workspaceInvoices = useMemo(
+    () =>
+      filterInvoicesByCurrency(
+        invoices,
+        currency
+      ),
+    [invoices, currency]
+  );
+
+  const workspacePayments = useMemo(
+    () =>
+      filterPaymentsByCurrency(
+        payments,
+        currency
+      ),
+    [payments, currency]
+  );
+
   const outstandingAmount =
-    invoices.reduce(
+    workspaceInvoices.reduce(
       (sum, invoice) =>
         sum +
         Number(
@@ -3898,7 +4253,7 @@ export default function Invoicing() {
     );
 
   const overdueAmount =
-    invoices
+    workspaceInvoices
       .filter(
         (invoice) =>
           isInvoiceOverdue(
@@ -3989,8 +4344,11 @@ export default function Invoicing() {
           </strong>
 
           <small>
-            Functional currency:{" "}
-            {currency}
+            Workspace currency: {currency}
+            {currentCompany?.currency &&
+              currentCompany.currency !== currency
+              ? ` • Functional: ${currentCompany.currency}`
+              : ""}
           </small>
         </div>
       </div>
@@ -4115,7 +4473,7 @@ export default function Invoicing() {
 
         <div>
           <span>
-            Currency
+            Workspace Currency
           </span>
 
           <strong>
@@ -4131,7 +4489,7 @@ export default function Invoicing() {
           </span>
 
           <strong>
-            {invoices.length}
+            {workspaceInvoices.length}
           </strong>
         </div>
 
@@ -4232,7 +4590,7 @@ export default function Invoicing() {
             "invoices" && (
             <InvoiceListSection
               invoices={
-                invoices
+                workspaceInvoices
               }
               customers={
                 customers
@@ -4303,6 +4661,9 @@ export default function Invoicing() {
               currency={
                 currency
               }
+              activeCurrencies={
+                activeCurrencies
+              }
               onSaved={
                 handleCreateSaved
               }
@@ -4326,7 +4687,7 @@ export default function Invoicing() {
             "payments" && (
             <PaymentsSection
               payments={
-                payments
+                workspacePayments
               }
               invoices={
                 invoices
@@ -4380,10 +4741,10 @@ export default function Invoicing() {
             "statements" && (
             <StatementsSection
               invoices={
-                invoices
+                workspaceInvoices
               }
               payments={
-                payments
+                workspacePayments
               }
               customers={
                 customers
@@ -4439,6 +4800,15 @@ export default function Invoicing() {
         }
         currency={
           currency
+        }
+        workspaceCurrency={
+          workspaceCurrency
+        }
+        activeCurrencies={
+          activeCurrencies
+        }
+        exchangeRates={
+          exchangeRates
         }
         onClose={
           closePayment

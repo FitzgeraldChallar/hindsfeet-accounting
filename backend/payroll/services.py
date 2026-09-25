@@ -2,6 +2,8 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from .models import (
     Employee,
     PayrollAbsence,
@@ -138,6 +140,7 @@ class PayrollService:
             company=payroll_period.company,
             employment_status=Employee.EmploymentStatus.ACTIVE,
             pay_frequency=Employee.PayFrequency.MONTHLY,
+            currency=payroll_period.currency,
         ).order_by(
             "first_name",
             "last_name",
@@ -257,8 +260,16 @@ class PayrollService:
             )
 
         company_currency = str(
-            payroll_period.company.currency or ""
+            payroll_period.currency or payroll_period.company.currency or ""
         ).upper().strip()
+
+        try:
+            CompanyCurrencyService.validate_enabled_currency(
+                company=payroll_period.company,
+                currency=company_currency,
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc))
 
         if company_currency not in {"USD", "LRD"}:
             raise ValueError(
@@ -568,6 +579,13 @@ class PayrollService:
             raise ValueError(
                 "Employee does not belong to the payroll "
                 "company."
+            )
+
+        if employee.currency != payroll_period.currency:
+            raise ValueError(
+                f"Employee {employee.full_name} is paid in {employee.currency}, "
+                f"but this payroll period is in {payroll_period.currency}. "
+                "Create or select a payroll period matching the employee currency."
             )
 
         if (
@@ -1141,6 +1159,7 @@ class PayrollService:
         record = PayrollRecord.objects.create(
             payroll_period=payroll_period,
             employee=employee,
+            currency=payroll_period.currency,
 
             basic_salary=calculation[
                 "basic_salary"
@@ -1308,6 +1327,12 @@ class PayrollService:
                 raise ValueError(
                     f"Employee {employee.full_name} "
                     "does not belong to the payroll company."
+                )
+
+            if employee.currency != payroll_period.currency:
+                raise ValueError(
+                    f"Employee {employee.full_name} is paid in {employee.currency}, "
+                    f"but this payroll period is in {payroll_period.currency}."
                 )
 
             if (

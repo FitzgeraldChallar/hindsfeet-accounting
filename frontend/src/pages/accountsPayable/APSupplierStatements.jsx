@@ -33,6 +33,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -426,13 +431,14 @@ function BillDetailModal({
 
 
 export default function APSupplierStatements() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
   const navigate = useNavigate();
   const location = useLocation();
 
   const companyId = currentCompany?.id;
-  const currency =
-    currentCompany?.currency || "USD";
+  const currency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [suppliers, setSuppliers] = useState([]);
   const [bills, setBills] = useState([]);
@@ -578,7 +584,10 @@ export default function APSupplierStatements() {
       .filter(
         (bill) =>
           bill.status !== "VOIDED" &&
-          bill.status !== "DRAFT"
+          bill.status !== "DRAFT" &&
+          currencyCode(
+            bill?.currency || currentCompany?.currency
+          ) === currency
       )
       .sort((a, b) => {
         const aDate = new Date(
@@ -591,7 +600,7 @@ export default function APSupplierStatements() {
 
         return aDate - bDate;
       });
-  }, [bills, selectedSupplierId]);
+  }, [bills, selectedSupplierId, currency, currentCompany?.currency]);
 
 
   const supplierPayments = useMemo(() => {
@@ -609,6 +618,7 @@ export default function APSupplierStatements() {
           String(payment.bill)
         )
       )
+
       .sort((a, b) => {
         const aDate = new Date(
           a.payment_date ||
@@ -662,7 +672,11 @@ export default function APSupplierStatements() {
             payment.payment_method
           )} payment`,
         amount: -Math.abs(
-          Number(payment.amount || 0)
+          Number(
+            payment.amount_in_bill_currency ??
+            payment.amount ??
+            0
+          )
         ),
         payment,
       });

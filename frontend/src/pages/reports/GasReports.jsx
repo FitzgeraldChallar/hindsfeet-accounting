@@ -186,14 +186,14 @@ function firstDayOfMonth() {
 }
 
 export default function GasReports() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName =
     currentCompany?.name ||
     "No company selected";
   const currency =
-    currentCompany?.currency || "USD";
+    workspaceCurrency || currentCompany?.currency || "USD";
 
   const isGasStation =
     String(
@@ -260,7 +260,7 @@ export default function GasReports() {
           productsResponse,
         ] = await Promise.all([
           api.get(
-            `/api/operations/pump-sales/?company=${companyId}`
+            `/api/operations/pump-sales/?company=${companyId}&currency=${currency}`
           ),
           api.get(
             `/api/operations/fuel-pumps/?company=${companyId}`
@@ -298,7 +298,7 @@ export default function GasReports() {
         setRefreshing(false);
       }
     },
-    [companyId, isGasStation]
+    [companyId, isGasStation, currency]
   );
 
   useEffect(() => {
@@ -343,6 +343,13 @@ export default function GasReports() {
 
     return enrichedSales.filter(
       (sale) => {
+        if (
+          String(sale?.currency || "").toUpperCase() !==
+          String(currency).toUpperCase()
+        ) {
+          return false;
+        }
+
         if (
           dateFrom &&
           sale.sale_date < dateFrom
@@ -411,6 +418,7 @@ export default function GasReports() {
     fuelFilter,
     pumpFilter,
     paymentFilter,
+    currency,
   ]);
 
   const completedSales =

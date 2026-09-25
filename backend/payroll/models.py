@@ -94,6 +94,14 @@ class Employee(models.Model):
         default=PayFrequency.MONTHLY,
     )
 
+    # Currency in which this employee's salary is denominated and paid.
+    # Historical PayrollRecord rows keep their own currency snapshot.
+    currency = models.CharField(
+        max_length=3,
+        choices=Company.Currency.choices,
+        default=Company.Currency.USD,
+    )
+
     basic_salary = models.DecimalField(
         max_digits=18,
         decimal_places=2,
@@ -211,6 +219,10 @@ class PayrollPeriod(models.Model):
 
     pay_date = models.DateField()
 
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")], default="USD"
+    )
+
     # Payroll calculation configuration captured for this payroll run.
     # exchange_rate means: 1 unit of the company's payroll currency =
     # X units of LRD for statutory PAYE conversion.
@@ -284,10 +296,11 @@ class PayrollPeriod(models.Model):
             models.UniqueConstraint(
                 fields=[
                     "company",
+                    "currency",
                     "start_date",
                     "end_date",
                 ],
-                name="unique_payroll_period_per_company",
+                name="unique_payroll_period_per_company_currency",
             ),
         ]
 
@@ -781,6 +794,10 @@ class PayrollRecord(models.Model):
         Employee,
         on_delete=models.PROTECT,
         related_name="payroll_records",
+    )
+
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")], default="USD"
     )
 
     basic_salary = models.DecimalField(

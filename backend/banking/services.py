@@ -4,6 +4,7 @@ from django.db import transaction
 
 from accounting.models import Account
 from accounting.services import AccountingService
+from companies.currency_service import CompanyCurrencyService
 
 from .models import BankAccount, BankTransaction
 
@@ -82,6 +83,11 @@ class BankingService:
                 "account must be an Asset account."
             )
 
+        if bank_account.accounting_account.currency != bank_account.currency:
+            raise ValueError(
+                "Bank account currency must match its accounting ledger currency."
+            )
+
     @staticmethod
     def _validate_counter_account(
         *,
@@ -105,7 +111,7 @@ class BankingService:
             )
 
     @staticmethod
-    def _next_bank_account_code(*, company):
+    def _next_bank_account_code(*, company, currency=None):
         """
         Generate the next available accounting code for a
         company-specific bank account.
@@ -114,6 +120,7 @@ class BankingService:
         existing_codes = (
             Account.objects.filter(
                 company=company,
+                currency=currency or company.currency,
                 code__startswith="10",
             )
             .values_list("code", flat=True)
@@ -138,6 +145,7 @@ class BankingService:
 
         while Account.objects.filter(
             company=company,
+            currency=currency or company.currency,
             code=str(next_code),
         ).exists():
             next_code += 1
@@ -151,14 +159,19 @@ class BankingService:
         company,
         bank_name,
         account_name,
+        currency=None,
     ):
         """
         Create a dedicated Asset accounting account for a
         physical bank account.
         """
 
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency or company.currency
+        )
         code = BankingService._next_bank_account_code(
             company=company,
+            currency=currency,
         )
 
         name = (
@@ -167,6 +180,7 @@ class BankingService:
 
         return Account.objects.create(
             company=company,
+            currency=currency,
             code=code,
             name=name,
             account_type=Account.AccountType.ASSET,
@@ -201,6 +215,8 @@ class BankingService:
         reference="",
         description="",
         adjustment_direction=None,
+        currency=None,
+        exchange_rate=None,
     ):
         """
         Create a banking transaction and its corresponding
@@ -246,6 +262,12 @@ class BankingService:
             counter_account=counter_account,
             company=company,
         )
+
+        currency = bank_account.currency
+        if counter_account.currency != currency:
+            raise ValueError(
+                "Standard bank transactions require the counter account to use the bank account currency. Use a transfer or explicit FX journal for cross-currency activity."
+            )
 
         amount = BankingService._decimal(amount)
 
@@ -317,12 +339,16 @@ class BankingService:
                     "description": description,
                     "debit": amount,
                     "credit": Decimal("0.00"),
+                    "currency": currency,
+                    "exchange_rate": exchange_rate,
                 },
                 {
                     "account": counter_account,
                     "description": description,
                     "debit": Decimal("0.00"),
                     "credit": amount,
+                    "currency": currency,
+                    "exchange_rate": exchange_rate,
                 },
             ]
 
@@ -333,12 +359,16 @@ class BankingService:
                     "description": description,
                     "debit": amount,
                     "credit": Decimal("0.00"),
+                    "currency": currency,
+                    "exchange_rate": exchange_rate,
                 },
                 {
                     "account": bank_accounting_account,
                     "description": description,
                     "debit": Decimal("0.00"),
                     "credit": amount,
+                    "currency": currency,
+                    "exchange_rate": exchange_rate,
                 },
             ]
 
@@ -378,6 +408,8 @@ class BankingService:
                 transaction_date=transaction_date,
                 created_by=created_by,
                 lines=journal_lines,
+                currency=currency,
+                exchange_rate=exchange_rate,
                 post=True,
             )
         )
@@ -392,6 +424,9 @@ class BankingService:
                 bank_account=bank_account,
                 transaction_type=transaction_type,
                 amount=amount,
+                currency=currency,
+                exchange_rate=journal_entry.exchange_rate,
+                functional_amount=AccountingService._money(amount * journal_entry.exchange_rate),
                 transaction_date=transaction_date,
                 reference=reference.strip(),
                 description=description.strip(),
@@ -461,14 +496,20 @@ class BankingService:
                 "Transaction date is required."
             )
 
-        if (
-            source_account.currency
-            != destination_account.currency
-        ):
-            raise ValueError(
-                "Transfers between bank accounts with "
-                "different currencies are not supported."
-            )
+        source_currency = source_account.currency
+        destination_currency = destination_account.currency
+        source_rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=source_currency, to_currency=company.currency,
+            effective_date=transaction_date, supplied_rate=None,
+        )
+        destination_rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=destination_currency, to_currency=company.currency,
+            effective_date=transaction_date, supplied_rate=None,
+        )
+        destination_amount = amount
+        if source_currency != destination_currency:
+            functional_source = CompanyCurrencyService.money(amount * source_rate)
+            destination_amount = CompanyCurrencyService.money(functional_source / destination_rate)
 
         source_accounting_account = (
             source_account.accounting_account
@@ -504,14 +545,18 @@ class BankingService:
             {
                 "account": destination_accounting_account,
                 "description": journal_description,
-                "debit": amount,
+                "debit": destination_amount,
                 "credit": Decimal("0.00"),
+                "currency": destination_currency,
+                "exchange_rate": destination_rate,
             },
             {
                 "account": source_accounting_account,
                 "description": journal_description,
                 "debit": Decimal("0.00"),
                 "credit": amount,
+                "currency": source_currency,
+                "exchange_rate": source_rate,
             },
         ]
 
@@ -523,6 +568,8 @@ class BankingService:
                 transaction_date=transaction_date,
                 created_by=created_by,
                 lines=journal_lines,
+                currency=source_currency,
+                exchange_rate=source_rate,
                 post=True,
             )
         )
@@ -537,6 +584,9 @@ class BankingService:
                     .TRANSFER_OUT
                 ),
                 amount=amount,
+                currency=source_currency,
+                exchange_rate=source_rate,
+                functional_amount=CompanyCurrencyService.money(amount * source_rate),
                 transaction_date=transaction_date,
                 reference=reference.strip(),
                 description=(
@@ -560,7 +610,10 @@ class BankingService:
                     .TransactionType
                     .TRANSFER_IN
                 ),
-                amount=amount,
+                amount=destination_amount,
+                currency=destination_currency,
+                exchange_rate=destination_rate,
+                functional_amount=CompanyCurrencyService.money(destination_amount * destination_rate),
                 transaction_date=transaction_date,
                 reference=reference.strip(),
                 description=(
@@ -608,6 +661,7 @@ class BankingService:
         ledger = AccountingService.general_ledger(
             company=bank_account.company,
             account=bank_account.accounting_account,
+            currency=bank_account.currency,
         )
 
         if not ledger:

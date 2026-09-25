@@ -173,8 +173,43 @@ function RecordExpenseModal({
   bankAccounts,
   companyId,
   currency,
+  availableCurrencies = [],
   onSaved,
 }) {
+  const normalizedCurrencies = useMemo(() => {
+    const values = (Array.isArray(availableCurrencies)
+      ? availableCurrencies
+      : []
+    )
+      .map((value) =>
+        typeof value === "object"
+          ? value?.currency
+          : value
+      )
+      .map((value) =>
+        String(value || "").trim().toUpperCase()
+      )
+      .filter(Boolean);
+
+    const fallback = String(currency || "USD")
+      .trim()
+      .toUpperCase();
+
+    return Array.from(
+      new Set(values.length ? values : [fallback])
+    );
+  }, [availableCurrencies, currency]);
+
+  const initialTransactionCurrency =
+    normalizedCurrencies.includes(
+      String(currency || "").trim().toUpperCase()
+    )
+      ? String(currency || "").trim().toUpperCase()
+      : normalizedCurrencies[0] || "USD";
+
+  const [transactionCurrency, setTransactionCurrency] =
+    useState(initialTransactionCurrency);
+
   const [form, setForm] = useState({
     expense_account: "",
     payment_account: "",
@@ -187,16 +222,26 @@ function RecordExpenseModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const expenseAccounts = accounts.filter(
-    (a) =>
-      a.account_type === "EXPENSE" &&
-      a.is_active !== false
+  const expenseAccounts = useMemo(
+    () =>
+      accounts.filter(
+        (a) =>
+          a.account_type === "EXPENSE" &&
+          a.currency === transactionCurrency &&
+          a.is_active !== false
+      ),
+    [accounts, transactionCurrency]
   );
 
-  const paymentAccounts = accounts.filter(
-    (a) =>
-      a.account_type === "ASSET" &&
-      a.is_active !== false
+  const paymentAccounts = useMemo(
+    () =>
+      accounts.filter(
+        (a) =>
+          a.account_type === "ASSET" &&
+          a.currency === transactionCurrency &&
+          a.is_active !== false
+      ),
+    [accounts, transactionCurrency]
   );
 
   /*
@@ -213,8 +258,15 @@ function RecordExpenseModal({
         Number(accountId)
     );
 
+    const accountingAccount = accounts.find(
+      (account) =>
+        Number(account.id) === Number(accountId)
+    );
+
     return (
       bankAccount?.currency ||
+      accountingAccount?.currency ||
+      transactionCurrency ||
       currency ||
       "USD"
     );
@@ -242,13 +294,10 @@ function RecordExpenseModal({
   useEffect(() => {
     if (!open) return;
 
+    setTransactionCurrency(initialTransactionCurrency);
     setForm({
-      expense_account: expenseAccounts[0]?.id
-        ? String(expenseAccounts[0].id)
-        : "",
-      payment_account: paymentAccounts[0]?.id
-        ? String(paymentAccounts[0].id)
-        : "",
+      expense_account: "",
+      payment_account: "",
       amount: "",
       transaction_date: today(),
       reference: "",
@@ -258,8 +307,40 @@ function RecordExpenseModal({
     setError("");
   }, [
     open,
-    accounts.length,
-    bankAccounts.length,
+    initialTransactionCurrency,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    setForm((previous) => ({
+      ...previous,
+      expense_account:
+        expenseAccounts.some(
+          (account) =>
+            String(account.id) ===
+            String(previous.expense_account)
+        )
+          ? previous.expense_account
+          : expenseAccounts[0]?.id
+          ? String(expenseAccounts[0].id)
+          : "",
+      payment_account:
+        paymentAccounts.some(
+          (account) =>
+            String(account.id) ===
+            String(previous.payment_account)
+        )
+          ? previous.payment_account
+          : paymentAccounts[0]?.id
+          ? String(paymentAccounts[0].id)
+          : "",
+    }));
+  }, [
+    open,
+    transactionCurrency,
+    expenseAccounts,
+    paymentAccounts,
   ]);
 
   if (!open) return null;
@@ -289,6 +370,21 @@ function RecordExpenseModal({
     ) {
       setError(
         "Select both accounts."
+      );
+      return;
+    }
+
+    if (!normalizedCurrencies.includes(transactionCurrency)) {
+      setError("Select a supported transaction currency.");
+      return;
+    }
+
+    if (
+      selectedExpenseAccount?.currency !== transactionCurrency ||
+      selectedPaymentAccount?.currency !== transactionCurrency
+    ) {
+      setError(
+        "The expense account and payment account must both use the selected transaction currency."
       );
       return;
     }
@@ -326,11 +422,14 @@ function RecordExpenseModal({
           transaction_date:
             form.transaction_date,
 
+          currency: transactionCurrency,
+
           lines: [
             {
               account: Number(
                 form.expense_account
               ),
+              currency: transactionCurrency,
               description:
                 form.description.trim(),
               debit: form.amount,
@@ -340,6 +439,7 @@ function RecordExpenseModal({
               account: Number(
                 form.payment_account
               ),
+              currency: transactionCurrency,
               description:
                 form.description.trim(),
               debit: "0.00",
@@ -403,6 +503,36 @@ function RecordExpenseModal({
           className="expenses-form"
         >
           <div className="expenses-form-grid">
+            <label className="expenses-field">
+              <span>
+                Transaction Currency *
+              </span>
+
+              <select
+                value={transactionCurrency}
+                onChange={(e) => {
+                  setTransactionCurrency(e.target.value);
+                  setForm((previous) => ({
+                    ...previous,
+                    expense_account: "",
+                    payment_account: "",
+                  }));
+                  setError("");
+                }}
+                required
+              >
+                {normalizedCurrencies.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+
+              <small>
+                The expense and payment accounts must use this currency.
+              </small>
+            </label>
+
             <label className="expenses-field">
               <span>
                 Expense Account *
@@ -628,8 +758,11 @@ function RecordExpenseModal({
    ============================================================ */
 
 export default function Expenses() {
-  const { currentCompany } =
-    useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+    activeCurrencies,
+  } = useCompany();
 
   const companyId =
     currentCompany?.id;
@@ -637,6 +770,29 @@ export default function Expenses() {
   const companyCurrency =
     currentCompany?.currency ||
     "USD";
+
+  const workspaceTransactionCurrency =
+    workspaceCurrency || companyCurrency;
+
+  const availableCurrencies = useMemo(() => {
+    const codes = (Array.isArray(activeCurrencies)
+      ? activeCurrencies
+      : []
+    )
+      .map((item) => item?.currency)
+      .map((value) =>
+        String(value || "").trim().toUpperCase()
+      )
+      .filter(Boolean);
+
+    return Array.from(
+      new Set(
+        codes.length
+          ? codes
+          : [companyCurrency, "USD", "LRD"]
+      )
+    );
+  }, [activeCurrencies, companyCurrency]);
 
   const [accounts, setAccounts] =
     useState([]);
@@ -705,18 +861,21 @@ export default function Expenses() {
       setError("");
 
       try {
+        const ledgerResponses = await Promise.all(
+          availableCurrencies.map((currency) =>
+            api.get(
+              `/api/accounting/reports/general-ledger/?company=${companyId}&currency=${encodeURIComponent(currency)}`
+            )
+          )
+        );
+
         const [
           accountsResponse,
-          ledgerResponse,
           bankAccountsResponse,
           bankTransactionsResponse,
         ] = await Promise.all([
           api.get(
             `/api/accounting/accounts/?company=${companyId}`
-          ),
-
-          api.get(
-            `/api/accounting/reports/general-ledger/?company=${companyId}`
           ),
 
           api.get(
@@ -733,7 +892,9 @@ export default function Expenses() {
         );
 
         setLedger(
-          list(ledgerResponse?.accounts)
+          ledgerResponses.flatMap((response) =>
+            list(response?.accounts)
+          )
         );
 
         setBankAccounts(
@@ -755,7 +916,7 @@ export default function Expenses() {
         setRefreshing(false);
       }
     },
-    [companyId]
+    [companyId, availableCurrencies]
   );
 
   useEffect(() => {
@@ -940,11 +1101,13 @@ export default function Expenses() {
 
             if (amount > 0) {
               const currency =
+                t.currency ||
                 journalCurrencyMap[
                   Number(
                     t.journal_entry_id
                   )
                 ] ||
+                account.currency ||
                 companyCurrency;
 
               rows.push({
@@ -2119,7 +2282,10 @@ const categoryData = useMemo(() => {
         }
         companyId={companyId}
         currency={
-          companyCurrency
+          workspaceTransactionCurrency
+        }
+        availableCurrencies={
+          availableCurrencies
         }
         onSaved={() =>
           load(true)

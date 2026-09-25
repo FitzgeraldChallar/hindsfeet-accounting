@@ -13,6 +13,7 @@ from .models import (
     Inventory,
     InventoryTransaction,
     Product,
+    ProductPrice,
     ProductCategory,
     PumpAttendant,
     PumpSale,
@@ -196,6 +197,13 @@ class ProductListCreateView(
         )
 
         product = serializer.save()
+
+        from companies.models import CompanyCurrency
+        for workspace_currency in CompanyCurrency.objects.filter(company=company, is_active=True).values_list("currency", flat=True):
+            ProductPrice.objects.get_or_create(
+                product=product, currency=workspace_currency,
+                defaults={"selling_price": product.selling_price, "cost_price": product.cost_price, "is_active": True},
+            )
 
         if not product.track_inventory:
             return
@@ -568,6 +576,8 @@ class InventoryTransactionListCreateView(
                 "transaction_date"
             ],
             created_by=self.request.user,
+            currency=serializer.validated_data.get("currency") or company.currency,
+            exchange_rate=serializer.validated_data.get("exchange_rate"),
         )
 
 
@@ -599,15 +609,16 @@ class SaleListView(
             "company"
         )
 
+        currency = self.request.query_params.get("currency")
+
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -616,9 +627,9 @@ class SaleListView(
         )
 
         if company_id:
-            queryset = queryset.filter(
-                company_id=company_id
-            )
+            queryset = queryset.filter(company_id=company_id)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -727,6 +738,8 @@ class CreateSaleView(APIView):
                     "complete",
                     True,
                 ),
+                currency=request.data.get("currency"),
+                exchange_rate=request.data.get("exchange_rate"),
             )
 
         except Product.DoesNotExist:
@@ -1151,16 +1164,16 @@ class PumpSaleListView(
         company_id = self.request.query_params.get(
             "company"
         )
+        currency = self.request.query_params.get("currency")
 
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -1169,9 +1182,9 @@ class PumpSaleListView(
         )
 
         if company_id:
-            queryset = queryset.filter(
-                company_id=company_id
-            )
+            queryset = queryset.filter(company_id=company_id)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -1265,6 +1278,8 @@ class CreatePumpSaleView(APIView):
                         "complete",
                         True,
                     ),
+                    currency=request.data.get("currency"),
+                    exchange_rate=request.data.get("exchange_rate"),
                 )
             )
 
@@ -1291,8 +1306,11 @@ class CreatePumpSaleView(APIView):
                     unit_price = (
                         pump_sale.price_per_litre
                     )
+                    price_profile = ProductPrice.objects.filter(
+                        product=fuel_product, currency=pump_sale.currency, is_active=True
+                    ).first()
                     unit_cost = (
-                        fuel_product.cost_price
+                        price_profile.cost_price if price_profile else fuel_product.cost_price
                     )
 
                     line_total = (
@@ -1305,6 +1323,8 @@ class CreatePumpSaleView(APIView):
 
                     generic_sale = Sale.objects.create(
                         company=company,
+                        currency=pump_sale.currency,
+                        exchange_rate=pump_sale.exchange_rate,
                         sale_number=sale_number,
                         sale_date=pump_sale.sale_date,
                         customer_name=(
@@ -1437,3 +1457,30 @@ class PumpSaleDetailView(
         return Response(
             serializer.data
         )
+
+class ProductPriceListCreateView(generics.ListCreateAPIView):
+    from .serializers import ProductPriceSerializer
+    serializer_class = ProductPriceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = ProductPrice.objects.select_related("product", "product__company")
+        company_id = self.request.query_params.get("company")
+        product_id = self.request.query_params.get("product")
+        currency = self.request.query_params.get("currency")
+        if company_id:
+            qs = qs.filter(product__company_id=company_id)
+        if product_id:
+            qs = qs.filter(product_id=product_id)
+        if currency:
+            qs = qs.filter(currency=currency.upper())
+        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+            return qs
+        return qs.filter(product__company__memberships__user=user, product__company__memberships__is_active=True).distinct()
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data["product"]
+        if not user_can_access_company(self.request.user, product.company):
+            raise PermissionDenied("You do not have access to this company.")
+        serializer.save()

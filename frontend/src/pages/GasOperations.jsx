@@ -176,11 +176,27 @@ function Field({ label, required = false, children, hint }) {
 }
 
 export default function GasOperations() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName = currentCompany?.name || "No company selected";
-  const currency = currentCompany?.currency || "USD";
+  const currency = workspaceCurrency || currentCompany?.currency || "USD";
+  const getProductPrice = useCallback(
+    (product, code = currency) => {
+      if (!product) return null;
+      const prices = Array.isArray(product.prices) ? product.prices : [];
+      return (
+        prices.find(
+          (price) =>
+            String(price?.currency || "").toUpperCase() ===
+            String(code || "").toUpperCase() &&
+            price?.is_active !== false
+        ) || null
+      );
+    },
+    [currency]
+  );
+
   const isGasStation =
     String(currentCompany?.business_type || "").toUpperCase() ===
     "GAS_STATION";
@@ -258,8 +274,8 @@ export default function GasOperations() {
             `/api/operations/pump-attendants/?company=${companyId}`
           ),
           api.get(`/api/operations/fuel-pumps/?company=${companyId}`),
-          api.get(`/api/operations/products/?company=${companyId}`),
-          api.get(`/api/operations/pump-sales/?company=${companyId}`),
+          api.get(`/api/operations/products/?company=${companyId}&currency=${currency}`),
+          api.get(`/api/operations/pump-sales/?company=${companyId}&currency=${currency}`),
         ]);
 
         setAttendants(list(attendantsResponse));
@@ -279,7 +295,7 @@ export default function GasOperations() {
         setLoading(false);
       }
     },
-    [companyId, isGasStation]
+    [companyId, isGasStation, currency]
   );
 
   useEffect(() => {
@@ -310,8 +326,8 @@ export default function GasOperations() {
         ...current,
         fuel_product: String(products[0].id),
         price_per_litre:
-          products[0].selling_price != null
-            ? String(products[0].selling_price)
+          getProductPrice(products[0])?.selling_price != null
+            ? String(getProductPrice(products[0]).selling_price)
             : "",
       }));
     }
@@ -404,7 +420,7 @@ export default function GasOperations() {
       calculatedLitres *
       n(
         saleForm.price_per_litre ||
-          selectedProduct?.selling_price ||
+          getProductPrice(selectedProduct)?.selling_price ||
           0
       ),
     [calculatedLitres, saleForm.price_per_litre, selectedProduct]
@@ -414,6 +430,7 @@ export default function GasOperations() {
     const query = search.trim().toLowerCase();
 
     return [...sales]
+      .filter((sale) => String(sale?.currency || "").toUpperCase() === String(currency).toUpperCase())
       .filter((sale) => {
         if (!query) return true;
 
@@ -453,9 +470,11 @@ export default function GasOperations() {
   const dailySales = useMemo(
     () =>
       sales.filter(
-        (sale) => String(sale.sale_date) === String(salesDate)
+        (sale) =>
+          String(sale?.currency || "").toUpperCase() === String(currency).toUpperCase() &&
+          String(sale.sale_date) === String(salesDate)
       ),
-    [sales, salesDate]
+    [sales, salesDate, currency]
   );
 
   const stats = useMemo(() => {
@@ -536,8 +555,8 @@ export default function GasOperations() {
       opening_meter: "",
       closing_meter: "",
       price_per_litre:
-        products[0]?.selling_price != null
-          ? String(products[0].selling_price)
+        getProductPrice(products[0])?.selling_price != null
+          ? String(getProductPrice(products[0]).selling_price)
           : "",
       payment_method: "CASH",
       reference: "",
@@ -762,6 +781,7 @@ export default function GasOperations() {
         payment_method: saleForm.payment_method,
         reference: saleForm.reference.trim(),
         notes: saleForm.notes.trim(),
+        currency,
         complete: true,
       };
 
@@ -1182,7 +1202,7 @@ export default function GasOperations() {
                             </span>
                           </div>
                           <strong>
-                            {money(product.selling_price, currency)}
+                            {money(getProductPrice(product)?.selling_price ?? product.selling_price, currency)}
                           </strong>
                         </div>
                       ))}
@@ -1872,8 +1892,8 @@ export default function GasOperations() {
                     ...current,
                     fuel_product: event.target.value,
                     price_per_litre:
-                      product?.selling_price != null
-                        ? String(product.selling_price)
+                      getProductPrice(product)?.selling_price != null
+                        ? String(getProductPrice(product).selling_price)
                         : current.price_per_litre,
                   }));
                 }}
@@ -2005,7 +2025,7 @@ export default function GasOperations() {
               <strong>
                 {money(
                   saleForm.price_per_litre ||
-                    selectedProduct?.selling_price ||
+                    getProductPrice(selectedProduct)?.selling_price ||
                     0,
                   currency
                 )}

@@ -2,6 +2,8 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from accounting.models import Account
 from accounting.services import AccountingService
 
@@ -37,11 +39,12 @@ class PayrollAccountingService:
     NASSCORP_LIABILITY_CODE = "2300"
 
     @staticmethod
-    def _get_account(*, company, code):
+    def _get_account(*, company, code, currency=None):
         try:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -124,6 +127,14 @@ class PayrollAccountingService:
             raise ValueError(
                 "Cannot post payroll without payroll records."
             )
+
+        for record in records:
+            if record.currency != payroll_period.currency:
+                raise ValueError(
+                    f"Payroll record for {record.employee.full_name} is in "
+                    f"{record.currency}, but the payroll period is in "
+                    f"{payroll_period.currency}."
+                )
 
         # =========================================================
         # PAYROLL TOTALS
@@ -314,6 +325,7 @@ class PayrollAccountingService:
                     PayrollAccountingService
                     .SALARY_EXPENSE_CODE
                 ),
+                currency=payroll_period.currency,
             )
         )
 
@@ -324,6 +336,7 @@ class PayrollAccountingService:
                     PayrollAccountingService
                     .PAYROLL_LIABILITY_CODE
                 ),
+                currency=payroll_period.currency,
             )
         )
 
@@ -334,6 +347,7 @@ class PayrollAccountingService:
                     PayrollAccountingService
                     .PAYE_LIABILITY_CODE
                 ),
+                currency=payroll_period.currency,
             )
         )
 
@@ -344,6 +358,7 @@ class PayrollAccountingService:
                     PayrollAccountingService
                     .NASSCORP_LIABILITY_CODE
                 ),
+                currency=payroll_period.currency,
             )
         )
 
@@ -389,6 +404,14 @@ class PayrollAccountingService:
         #
         # =========================================================
 
+        accounting_rate = CompanyCurrencyService.get_rate(
+            company=payroll_period.company,
+            from_currency=payroll_period.currency,
+            to_currency=payroll_period.company.currency,
+            effective_date=payroll_period.pay_date,
+            supplied_rate=None,
+        )
+
         journal_lines = [
             {
                 "account": salary_expense_account,
@@ -398,6 +421,8 @@ class PayrollAccountingService:
                 ),
                 "debit": total_employer_cost,
                 "credit": Decimal("0.00"),
+                "currency": payroll_period.currency,
+                "exchange_rate": accounting_rate,
             },
             {
                 "account": payroll_liability_account,
@@ -407,6 +432,8 @@ class PayrollAccountingService:
                 ),
                 "debit": Decimal("0.00"),
                 "credit": total_net_pay,
+                "currency": payroll_period.currency,
+                "exchange_rate": accounting_rate,
             },
         ]
 
@@ -424,6 +451,8 @@ class PayrollAccountingService:
                     ),
                     "debit": Decimal("0.00"),
                     "credit": total_paye,
+                    "currency": payroll_period.currency,
+                    "exchange_rate": accounting_rate,
                 }
             )
 
@@ -441,6 +470,8 @@ class PayrollAccountingService:
                     ),
                     "debit": Decimal("0.00"),
                     "credit": total_employee_nasscorp,
+                    "currency": payroll_period.currency,
+                    "exchange_rate": accounting_rate,
                 }
             )
 
@@ -466,9 +497,10 @@ class PayrollAccountingService:
                     ),
                     "debit": Decimal("0.00"),
                     "credit": total_employer_nasscorp,
+                    "currency": payroll_period.currency,
+                    "exchange_rate": accounting_rate,
                 }
             )
-
         # =========================================================
         # FINAL JOURNAL LINE BALANCE CHECK
         # =========================================================
@@ -515,6 +547,8 @@ class PayrollAccountingService:
                 transaction_date=payroll_period.pay_date,
                 created_by=posted_by,
                 lines=journal_lines,
+                currency=payroll_period.currency,
+                exchange_rate=accounting_rate,
                 post=True,
             )
         )

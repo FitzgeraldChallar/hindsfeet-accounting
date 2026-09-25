@@ -41,6 +41,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -381,11 +386,17 @@ function PaymentModal({
   bill,
   supplier,
   currency,
+  activeCurrencies,
+  paymentCurrency,
+  paymentRate,
+  paymentMaxAmount,
+  paymentCoveredInBillCurrency,
   paymentForm,
   setPaymentForm,
   saving,
   onClose,
   onSubmit,
+  onCurrencyChange,
 }) {
   if (!bill) return null;
 
@@ -430,6 +441,11 @@ function PaymentModal({
 
         <div className="ap-ob-payment-summary">
           <div>
+            <span>Bill Currency</span>
+            <strong>{currency}</strong>
+          </div>
+
+          <div>
             <span>Outstanding Balance</span>
             <strong>
               {money(balance, currency)}
@@ -446,15 +462,42 @@ function PaymentModal({
 
         <div className="ap-ob-form-grid">
           <label>
-            <span>Payment Amount *</span>
+            <span>Payment Currency *</span>
+            <select
+              value={paymentCurrency}
+              onChange={(event) =>
+                onCurrencyChange(event.target.value)
+              }
+              required
+            >
+              {(Array.isArray(activeCurrencies) && activeCurrencies.length > 0
+                ? activeCurrencies
+                    .filter((item) => item?.is_active !== false)
+                    .map((item) => currencyCode(item?.currency))
+                    .filter(Boolean)
+                : [currency]
+              )
+                .filter((value, index, array) =>
+                  array.indexOf(value) === index
+                )
+                .map((code) => (
+                  <option value={code} key={code}>
+                    {code}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Payment Amount ({paymentCurrency}) *</span>
 
             <div className="ap-ob-money-input">
-              <span>{currency}</span>
+              <span>{paymentCurrency}</span>
 
               <input
                 type="number"
                 min="0.01"
-                max={balance}
+                max={paymentMaxAmount !== null ? paymentMaxAmount : undefined}
                 step="0.01"
                 value={paymentForm.amount}
                 onChange={(event) =>
@@ -526,6 +569,24 @@ function PaymentModal({
             />
           </label>
 
+          <div className="ap-ob-form-full ap-ob-payment-conversion">
+            <div>
+              <span>Bill-covered amount</span>
+              <strong>
+                {money(
+                  paymentCoveredInBillCurrency,
+                  currency
+                )}
+              </strong>
+            </div>
+
+            {paymentCurrency !== currency && paymentRate !== null && (
+              <small>
+                1 {paymentCurrency} = {paymentRate.toFixed(6)} {currency}
+              </small>
+            )}
+          </div>
+
           <label className="ap-ob-form-full">
             <span>Notes</span>
 
@@ -581,12 +642,18 @@ function PaymentModal({
 
 
 export default function APOutstandingBills() {
-  const { currentCompany } = useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+    activeCurrencies,
+    exchangeRates,
+  } = useCompany();
   const navigate = useNavigate();
 
   const companyId = currentCompany?.id;
-  const currency =
-    currentCompany?.currency || "USD";
+  const currency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [bills, setBills] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -618,6 +685,9 @@ export default function APOutstandingBills() {
     reference: "",
     notes: "",
   });
+
+  const [paymentCurrency, setPaymentCurrency] =
+    useState(currency);
 
 
   const loadData = useCallback(
@@ -664,7 +734,7 @@ export default function APOutstandingBills() {
         setRefreshing(false);
       }
     },
-    [companyId]
+    [companyId, currency]
   );
 
 
@@ -694,7 +764,10 @@ export default function APOutstandingBills() {
         return (
           balance > 0 &&
           bill.status !== "DRAFT" &&
-          bill.status !== "VOIDED"
+          bill.status !== "VOIDED" &&
+          currencyCode(
+            bill?.currency || currentCompany?.currency
+          ) === currency
         );
       })
       .sort((a, b) => {
@@ -802,16 +875,110 @@ export default function APOutstandingBills() {
   ]);
 
 
+  const billCurrency = currencyCode(
+    paymentBill?.currency || currency
+  );
+
+  const getRate = (fromCurrency, toCurrency, effectiveDate) => {
+    const from = currencyCode(fromCurrency);
+    const to = currencyCode(toCurrency);
+
+    if (!from || !to || from === to) return 1;
+
+    const date = effectiveDate || dateInputValue();
+    const rates = Array.isArray(exchangeRates) ? exchangeRates : [];
+
+    const direct = rates
+      .filter(
+        (rate) =>
+          rate?.is_active !== false &&
+          currencyCode(rate?.from_currency) === from &&
+          currencyCode(rate?.to_currency) === to &&
+          String(rate?.effective_date || "") <= date
+      )
+      .sort((a, b) =>
+        String(b?.effective_date || "").localeCompare(
+          String(a?.effective_date || "")
+        )
+      )[0];
+
+    if (direct) {
+      const value = Number(direct.rate || 0);
+      if (value > 0) return value;
+    }
+
+    const inverse = rates
+      .filter(
+        (rate) =>
+          rate?.is_active !== false &&
+          currencyCode(rate?.from_currency) === to &&
+          currencyCode(rate?.to_currency) === from &&
+          String(rate?.effective_date || "") <= date
+      )
+      .sort((a, b) =>
+        String(b?.effective_date || "").localeCompare(
+          String(a?.effective_date || "")
+        )
+      )[0];
+
+    if (inverse) {
+      const value = Number(inverse.rate || 0);
+      if (value > 0) return 1 / value;
+    }
+
+    return null;
+  };
+
+  const paymentRate = getRate(
+    paymentCurrency,
+    billCurrency,
+    paymentForm.payment_date
+  );
+
+  const paymentMaxAmount = useMemo(() => {
+    if (!paymentBill) return null;
+
+    const balance = Number(paymentBill.balance_due || 0);
+
+    if (paymentCurrency === billCurrency) return balance;
+    if (!paymentRate || paymentRate <= 0) return null;
+
+    return balance / paymentRate;
+  }, [paymentBill, paymentCurrency, billCurrency, paymentRate]);
+
+  const paymentCoveredInBillCurrency = useMemo(() => {
+    const amount = Number(paymentForm.amount || 0);
+    if (amount <= 0) return 0;
+    if (paymentCurrency === billCurrency) return amount;
+    if (!paymentRate || paymentRate <= 0) return 0;
+    return amount * paymentRate;
+  }, [paymentForm.amount, paymentCurrency, billCurrency, paymentRate]);
+
   const openPayment = (bill) => {
     setSelectedBill(null);
     setPaymentError("");
-
     setPaymentBill(bill);
 
+    const defaultPaymentCurrency = currencyCode(
+      workspaceCurrency || bill?.currency || "USD"
+    );
+    setPaymentCurrency(defaultPaymentCurrency);
+
+    const billCurrencyForPayment = currencyCode(
+      bill?.currency || currency
+    );
+    const rate = getRate(
+      defaultPaymentCurrency,
+      billCurrencyForPayment,
+      dateInputValue()
+    );
+    const fullAmount =
+      rate && rate > 0
+        ? Number(bill.balance_due || 0) / rate
+        : Number(bill.balance_due || 0);
+
     setPaymentForm({
-      amount: Number(
-        bill.balance_due || 0
-      ).toFixed(2),
+      amount: fullAmount.toFixed(2),
       payment_date: dateInputValue(),
       payment_method: "BANK",
       reference: "",
@@ -819,19 +986,36 @@ export default function APOutstandingBills() {
     });
   };
 
+  const handlePaymentCurrencyChange = (nextCurrency) => {
+    const normalized = currencyCode(nextCurrency);
+    if (!normalized) return;
+
+    const rate = getRate(
+      normalized,
+      billCurrency,
+      paymentForm.payment_date
+    );
+    const balance = Number(paymentBill?.balance_due || 0);
+    const fullAmount =
+      rate && rate > 0
+        ? balance / rate
+        : normalized === billCurrency
+          ? balance
+          : null;
+
+    setPaymentCurrency(normalized);
+    setPaymentForm((previous) => ({
+      ...previous,
+      amount: fullAmount !== null ? fullAmount.toFixed(2) : "",
+    }));
+    setPaymentError("");
+  };
 
   const handlePayment = async (event) => {
     event.preventDefault();
-
     if (!paymentBill) return;
 
-    const amount = Number(
-      paymentForm.amount
-    );
-
-    const balance = Number(
-      paymentBill.balance_due || 0
-    );
+    const amount = Number(paymentForm.amount);
 
     if (!amount || amount <= 0) {
       setPaymentError(
@@ -840,9 +1024,16 @@ export default function APOutstandingBills() {
       return;
     }
 
-    if (amount > balance) {
+    if (paymentCurrency !== billCurrency && (!paymentRate || paymentRate <= 0)) {
       setPaymentError(
-        "Payment cannot be greater than the outstanding balance."
+        `No historical exchange rate is available for ${paymentCurrency} to ${billCurrency} on ${paymentForm.payment_date}.`
+      );
+      return;
+    }
+
+    if (paymentMaxAmount === null || amount > paymentMaxAmount + 0.000001) {
+      setPaymentError(
+        `Payment cannot exceed ${money(paymentMaxAmount || 0, paymentCurrency)}.`
       );
       return;
     }
@@ -856,38 +1047,27 @@ export default function APOutstandingBills() {
         {
           bill: paymentBill.id,
           amount: amount.toFixed(2),
-          payment_date:
-            paymentForm.payment_date,
-          payment_method:
-            paymentForm.payment_method,
-          reference:
-            paymentForm.reference.trim(),
+          currency: paymentCurrency,
+          payment_date: paymentForm.payment_date,
+          payment_method: paymentForm.payment_method,
+          reference: paymentForm.reference.trim(),
           notes: paymentForm.notes.trim(),
         }
       );
 
       setPaymentBill(null);
       setSelectedBill(null);
-
       await loadData(true);
     } catch (err) {
       const data = err?.data;
-
       if (data && typeof data === "object") {
-        const firstError =
-          Object.values(data)
-            .flat()
-            .find(Boolean);
-
+        const firstError = Object.values(data).flat().find(Boolean);
         setPaymentError(
-          firstError ||
-            err?.message ||
-            "Unable to record payment."
+          firstError || err?.message || "Unable to record payment."
         );
       } else {
         setPaymentError(
-          err?.message ||
-            "Unable to record payment."
+          err?.message || "Unable to record payment."
         );
       }
     } finally {
@@ -1533,7 +1713,12 @@ export default function APOutstandingBills() {
               paymentBill.supplier
             ]
           }
-          currency={currency}
+          currency={billCurrency}
+          activeCurrencies={activeCurrencies}
+          paymentCurrency={paymentCurrency}
+          paymentRate={paymentRate}
+          paymentMaxAmount={paymentMaxAmount}
+          paymentCoveredInBillCurrency={paymentCoveredInBillCurrency}
           paymentForm={paymentForm}
           setPaymentForm={setPaymentForm}
           saving={savingPayment}
@@ -1544,6 +1729,7 @@ export default function APOutstandingBills() {
             }
           }}
           onSubmit={handlePayment}
+          onCurrencyChange={handlePaymentCurrencyChange}
         />
       )}
 

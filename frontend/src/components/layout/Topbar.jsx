@@ -2,6 +2,7 @@ import {
   Bell,
   Check,
   ChevronDown,
+  Link2,
   Menu,
   Search,
 } from "lucide-react";
@@ -22,6 +23,12 @@ export default function Topbar() {
     companies,
     currentCompany,
     selectCompany,
+    activeCurrencies,
+    workspaceCurrency,
+    functionalCurrency,
+    workspaceLoading,
+    workspaceError,
+    selectWorkspaceCurrency,
   } = useCompany();
 
 
@@ -31,9 +38,13 @@ export default function Topbar() {
   const [userMenuOpen, setUserMenuOpen] =
     useState(false);
 
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] =
+    useState(false);
+
 
   const companyMenuRef = useRef(null);
   const userMenuRef = useRef(null);
+  const workspaceMenuRef = useRef(null);
 
 
   // ==========================================================
@@ -79,6 +90,15 @@ export default function Topbar() {
         setUserMenuOpen(false);
       }
 
+      if (
+        workspaceMenuRef.current &&
+        !workspaceMenuRef.current.contains(
+          event.target
+        )
+      ) {
+        setWorkspaceMenuOpen(false);
+      }
+
     }
 
 
@@ -108,6 +128,18 @@ export default function Topbar() {
 
     setCompanyMenuOpen(false);
 
+    setWorkspaceMenuOpen(false);
+
+  }
+
+
+  // ==========================================================
+  // SELECT WORKSPACE
+  // ==========================================================
+
+  function handleWorkspaceSelect(currency) {
+    selectWorkspaceCurrency(currency);
+    setWorkspaceMenuOpen(false);
   }
 
 
@@ -334,6 +366,145 @@ export default function Topbar() {
             </div>
           )}
 
+        </div>
+
+
+        {/* ==================================================
+            CURRENCY WORKSPACE SELECTOR
+            ================================================== */}
+
+        <div
+          className="workspace-selector-wrapper"
+          ref={workspaceMenuRef}
+        >
+          <button
+            type="button"
+            className={`workspace-selector ${
+              workspaceMenuOpen
+                ? "workspace-selector-open"
+                : ""
+            }`}
+            onClick={() =>
+              setWorkspaceMenuOpen((value) => !value)
+            }
+            disabled={
+              !currentCompany?.id ||
+              workspaceLoading ||
+              activeCurrencies.length === 0
+            }
+            aria-haspopup="listbox"
+            aria-expanded={workspaceMenuOpen}
+            title={
+              workspaceError ||
+              "Select the currency workspace for transactions"
+            }
+          >
+            <div className="workspace-selector-icon">
+              <Link2 size={18} />
+            </div>
+
+            <div className="workspace-selector-info">
+              <span className="workspace-selector-label">
+                Workspace
+              </span>
+
+              <span className="workspace-selector-name">
+                {workspaceLoading && !workspaceCurrency
+                  ? "Loading..."
+                  : workspaceCurrency ||
+                    functionalCurrency ||
+                    "—"}
+              </span>
+            </div>
+
+            <ChevronDown
+              size={15}
+              className={
+                workspaceMenuOpen
+                  ? "workspace-selector-chevron-open"
+                  : ""
+              }
+            />
+          </button>
+
+          {workspaceMenuOpen && (
+            <div
+              className="workspace-selector-menu"
+              role="listbox"
+            >
+              <div className="workspace-selector-menu-header">
+                <span>
+                  Currency Workspace
+                </span>
+
+                <span>
+                  {activeCurrencies.length} active
+                </span>
+              </div>
+
+              <div className="workspace-selector-menu-list">
+                {activeCurrencies.length === 0 ? (
+                  <div className="workspace-selector-empty">
+                    {workspaceError ||
+                      "No active currency workspaces."}
+                  </div>
+                ) : (
+                  activeCurrencies.map((item) => {
+                    const code = String(
+                      item?.currency || ""
+                    ).toUpperCase();
+
+                    const selected =
+                      code === workspaceCurrency;
+
+                    return (
+                      <button
+                        key={item.id || code}
+                        type="button"
+                        className={`workspace-option ${
+                          selected
+                            ? "workspace-option-selected"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          handleWorkspaceSelect(code)
+                        }
+                        role="option"
+                        aria-selected={selected}
+                      >
+                        <div className="workspace-option-icon">
+                          <Link2 size={16} />
+                        </div>
+
+                        <div className="workspace-option-info">
+                          <span className="workspace-option-name">
+                            {code} Workspace
+                          </span>
+
+                          <span className="workspace-option-description">
+                            {code === functionalCurrency
+                              ? "Functional currency"
+                              : "Transaction workspace"}
+                          </span>
+                        </div>
+
+                        {selected && (
+                          <Check
+                            size={17}
+                            className="workspace-option-check"
+                          />
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="workspace-selector-menu-footer">
+                Functional currency: <strong>{functionalCurrency || "—"}</strong>
+              </div>
+            </div>
+          )}
         </div>
 
 

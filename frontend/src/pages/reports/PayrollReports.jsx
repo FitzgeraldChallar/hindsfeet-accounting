@@ -234,7 +234,10 @@ function errorMessage(error) {
 }
 
 export default function PayrollReports() {
-  const { currentCompany } = useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+  } = useCompany();
 
   const companyId =
     currentCompany?.id;
@@ -244,6 +247,7 @@ export default function PayrollReports() {
     "No company selected";
 
   const currency =
+    workspaceCurrency ||
     currentCompany?.currency ||
     "USD";
 
@@ -307,11 +311,11 @@ export default function PayrollReports() {
           remittancesResponse,
         ] = await Promise.all([
           api.get(
-            `/api/payroll/periods/?company=${companyId}`
+            `/api/payroll/periods/?company=${companyId}&currency=${currency}`
           ),
 
           api.get(
-            `/api/payroll/records/?company=${companyId}`
+            `/api/payroll/records/?company=${companyId}&currency=${currency}`
           ),
 
           api.get(
@@ -319,7 +323,7 @@ export default function PayrollReports() {
           ),
 
           api.get(
-            `/api/payroll/remittances/?company=${companyId}`
+            `/api/payroll/remittances/?company=${companyId}&currency=${currency}`
           ),
         ]);
 
@@ -354,7 +358,7 @@ export default function PayrollReports() {
         setRefreshing(false);
       }
     },
-    [companyId]
+    [companyId, currency]
   );
 
   useEffect(() => {

@@ -182,6 +182,7 @@ const emptyEmployee = {
   date_employed: "",
   date_terminated: "",
   pay_frequency: "MONTHLY",
+  currency: "USD",
   basic_salary: "0.00",
   is_taxable: true,
   notes: "",
@@ -198,6 +199,7 @@ function EmployeeFormModal({
   employee,
   companyId,
   userId,
+  defaultCurrency = "USD",
   onSaved,
 }) {
   const editing = Boolean(employee);
@@ -246,6 +248,10 @@ function EmployeeFormModal({
         pay_frequency:
           employee.pay_frequency ||
           "MONTHLY",
+        currency:
+          employee.currency ||
+          defaultCurrency ||
+          "USD",
         basic_salary:
           employee.basic_salary ??
           "0.00",
@@ -257,11 +263,12 @@ function EmployeeFormModal({
     } else {
       setForm({
         ...emptyEmployee,
+        currency: defaultCurrency || "USD",
       });
     }
 
     setError("");
-  }, [open, employee]);
+  }, [open, employee, defaultCurrency]);
 
 
   function updateField(
@@ -361,6 +368,8 @@ function EmployeeFormModal({
           form.date_terminated || null,
         pay_frequency:
           form.pay_frequency,
+        currency:
+          form.currency || defaultCurrency || "USD",
         basic_salary:
           form.basic_salary || "0.00",
         is_taxable:
@@ -873,7 +882,31 @@ function EmployeeFormModal({
 
               <div className="payroll-employee-field">
                 <label>
-                  Basic Salary
+                  Payroll Currency
+                </label>
+
+                <select
+                  value={form.currency || defaultCurrency || "USD"}
+                  onChange={(event) =>
+                    updateField(
+                      "currency",
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="USD">US Dollar (USD)</option>
+                  <option value="LRD">Liberian Dollar (LRD)</option>
+                </select>
+
+                <small>
+                  The employee's basic salary is denominated in this currency.
+                </small>
+              </div>
+
+
+              <div className="payroll-employee-field">
+                <label>
+                  Basic Salary ({form.currency || defaultCurrency || "USD"})
                 </label>
 
                 <input
@@ -1095,8 +1128,18 @@ function EmployeeDetailsModal({
               <strong>
                 {formatMoney(
                   employee.basic_salary,
-                  currency
+                  employee.currency || currency
                 )}
+              </strong>
+            </div>
+
+            <div className="payroll-employee-detail-card">
+              <span>
+                Payroll Currency
+              </span>
+
+              <strong>
+                {employee.currency || currency}
               </strong>
             </div>
 
@@ -1359,7 +1402,9 @@ function EmployeesPage({
       .filter(
         (employee) =>
           employee.employment_status ===
-          "ACTIVE"
+            "ACTIVE" &&
+          String(employee.currency || currency).toUpperCase() ===
+            String(currency).toUpperCase()
       )
       .reduce(
         (total, employee) =>
@@ -1756,6 +1801,10 @@ function EmployeesPage({
                   </th>
 
                   <th>
+                    Currency
+                  </th>
+
+                  <th>
                     Basic Salary
                   </th>
 
@@ -1839,10 +1888,17 @@ function EmployeesPage({
 
 
                       <td>
+                        <span className="payroll-employee-frequency">
+                          {employee.currency || currency}
+                        </span>
+                      </td>
+
+
+                      <td>
                         <strong className="payroll-employee-money">
                           {formatMoney(
                             employee.basic_salary,
-                            currency
+                            employee.currency || currency
                           )}
                         </strong>
                       </td>
@@ -1922,7 +1978,10 @@ function EmployeesPage({
 // ============================================================
 
 export default function Payroll() {
-  const { currentCompany } =
+  const {
+    currentCompany,
+    workspaceCurrency,
+  } =
     useCompany();
 
   const companyId =
@@ -1933,6 +1992,7 @@ export default function Payroll() {
     "No company selected";
 
   const currency =
+    workspaceCurrency ||
     currentCompany?.currency ||
     "USD";
 
@@ -2362,6 +2422,7 @@ export default function Payroll() {
           companyId
         }
         userId={userId}
+        defaultCurrency={currency}
         onSaved={
           handleSaved
         }
@@ -2377,7 +2438,7 @@ export default function Payroll() {
           viewingEmployee
         }
         currency={
-          currency
+          viewingEmployee?.currency || currency
         }
         onClose={() =>
           setViewingEmployee(
@@ -2432,15 +2493,15 @@ function PayrollDashboard({
           remittancesResponse,
         ] = await Promise.all([
           api.get(
-            `/api/payroll/periods/?company=${companyId}`
+            `/api/payroll/periods/?company=${companyId}&currency=${currency}`
           ),
 
           api.get(
-            `/api/payroll/records/?company=${companyId}`
+            `/api/payroll/records/?company=${companyId}&currency=${currency}`
           ),
 
           api.get(
-            `/api/payroll/remittances/?company=${companyId}`
+            `/api/payroll/remittances/?company=${companyId}&currency=${currency}`
           ),
         ]);
 
@@ -2471,7 +2532,7 @@ function PayrollDashboard({
     }
 
     loadDashboard();
-  }, [companyId]);
+  }, [companyId, currency]);
 
 
   const activeEmployees =
@@ -2480,7 +2541,9 @@ function PayrollDashboard({
         employee.employment_status ===
           "ACTIVE" &&
         employee.is_active !==
-          false
+          false &&
+        String(employee.currency || currency).toUpperCase() ===
+          String(currency).toUpperCase()
     );
 
 

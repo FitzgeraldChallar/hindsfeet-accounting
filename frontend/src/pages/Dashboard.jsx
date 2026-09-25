@@ -42,115 +42,55 @@ import { api } from "../services/api";
 import { useCompany } from "../context/CompanyContext";
 
 
-/* ============================================================
-   HINDSFEET CHART COLORS
-   ============================================================ */
+function money(value, currency = "USD") {
+  const amount = Number(value || 0);
 
-const CHART_COLORS = {
-  navy: "#071A3D",
-  blue: "#123C78",
-  gold: "#F4B400",
-  warmGold: "#D99A00",
-  lightGold: "#F8D56A",
-  slate: "#64748B",
-};
-
-
-/* ============================================================
-   MONEY FORMATTER
-   ============================================================ */
-
-function normalizeCurrency(currency) {
-  const value = String(
-    currency || "USD"
-  ).trim().toUpperCase();
-
-  /*
-   * The backend may eventually return values such as:
-   *
-   * USD
-   * LRD
-   * USD / LRD
-   * USD/LRD
-   *
-   * Intl.NumberFormat only accepts a single
-   * valid ISO currency code.
-   */
-
-  const validCurrencies = [
-    "USD",
-    "LRD",
-    "EUR",
-    "GBP",
-    "NGN",
-    "GHS",
-    "SLL",
-    "GMD",
-    "XOF",
-    "ZAR",
-    "KES",
-    "CAD",
-    "AUD",
-  ];
-
-  if (validCurrencies.includes(value)) {
-    return value;
-  }
-
-  if (value.includes("LRD")) {
-    return "LRD";
-  }
-
-  if (value.includes("USD")) {
-    return "USD";
-  }
-
-  if (value.includes("EUR")) {
-    return "EUR";
-  }
-
-  if (value.includes("GBP")) {
-    return "GBP";
-  }
-
-  return "USD";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
-
-function money(
-  value,
-  currency = "USD"
-) {
-  const amount =
-    Number(value || 0);
-
-  const safeCurrency =
-    normalizeCurrency(currency);
-
-  return new Intl.NumberFormat(
-    "en-US",
-    {
-      style: "currency",
-      currency: safeCurrency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  ).format(amount);
-}
-
-
-/* ============================================================
-   NUMBER
-   ============================================================ */
 
 function number(value) {
   return Number(value || 0);
 }
 
 
-/* ============================================================
-   EXTRACT LIST
-   ============================================================ */
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
+function getLineCurrency(line, entry) {
+  return currencyCode(
+    line?.currency ||
+      entry?.currency ||
+      ""
+  );
+}
+
+
+function accountTypeFromCode(code) {
+  const firstDigit = String(code || "").trim().charAt(0);
+
+  if (firstDigit === "1") return "ASSET";
+  if (firstDigit === "2") return "LIABILITY";
+  if (firstDigit === "3") return "EQUITY";
+  if (firstDigit === "4") return "REVENUE";
+  if (firstDigit === "5") return "COGS";
+  if (firstDigit === "6") return "EXPENSE";
+
+  return "";
+}
+
+
+function lineAmount(line, side) {
+  return number(line?.[side]);
+}
+
 
 function extractList(data) {
   if (Array.isArray(data)) {
@@ -169,23 +109,14 @@ function extractList(data) {
 }
 
 
-/* ============================================================
-   DATE FORMAT
-   ============================================================ */
-
 function formatDate(value) {
   if (!value) {
     return "";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return String(value);
   }
 
@@ -199,10 +130,6 @@ function formatDate(value) {
   );
 }
 
-
-/* ============================================================
-   STAT CARD
-   ============================================================ */
 
 function StatCard({
   title,
@@ -231,13 +158,9 @@ function StatCard({
             }`}
           >
             {positive ? (
-              <ArrowUpRight
-                size={13}
-              />
+              <ArrowUpRight size={13} />
             ) : (
-              <ArrowDownRight
-                size={13}
-              />
+              <ArrowDownRight size={13} />
             )}
 
             {trend}
@@ -275,10 +198,6 @@ function StatCard({
 }
 
 
-/* ============================================================
-   SECTION CARD
-   ============================================================ */
-
 function SectionCard({
   title,
   subtitle,
@@ -300,21 +219,14 @@ function SectionCard({
           )}
 
           <div>
-
-            <h2>
-              {title}
-            </h2>
+            <h2>{title}</h2>
 
             {subtitle && (
-              <p>
-                {subtitle}
-              </p>
+              <p>{subtitle}</p>
             )}
-
           </div>
 
         </div>
-
 
         {action}
 
@@ -330,355 +242,821 @@ function SectionCard({
 }
 
 
-/* ============================================================
-   EMPTY STATE
-   ============================================================ */
-
 function EmptyState({
-  message =
-    "No data available for this period.",
+  message = "No data available for this period.",
 }) {
   return (
     <div className="dashboard-empty-state">
-
-      <BarChart3
-        size={24}
-      />
-
-      <span>
-        {message}
-      </span>
-
+      <BarChart3 size={24} />
+      <span>{message}</span>
     </div>
   );
 }
 
 
-/* ============================================================
-   DASHBOARD
-   ============================================================ */
+function currentEntriesCashChange(
+  entries,
+  selectedCurrency,
+  accountMap
+) {
+  return entries.reduce(
+    (total, entry) =>
+      total +
+      (entry?.lines || [])
+        .filter(
+          (line) =>
+            getLineCurrency(
+              line,
+              entry
+            ) === selectedCurrency &&
+            String(
+              line?.account_code ||
+                accountMap.get(
+                  String(
+                    line?.account
+                  )
+                )?.code ||
+                ""
+            ).startsWith("10")
+        )
+        .reduce(
+          (sum, line) =>
+            sum +
+            lineAmount(
+              line,
+              "debit"
+            ) -
+            lineAmount(
+              line,
+              "credit"
+            ),
+          0
+        ),
+    0
+  );
+}
+
+
+function getCashComposition(
+  entries,
+  selectedCurrency,
+  accountMap
+) {
+  const result = {
+    OPERATING: 0,
+    INVESTING: 0,
+    FINANCING: 0,
+  };
+
+  entries.forEach(
+    (entry) => {
+      const lines =
+        (entry?.lines || []).filter(
+          (line) =>
+            getLineCurrency(
+              line,
+              entry
+            ) === selectedCurrency
+        );
+
+      const cashLines =
+        lines.filter(
+          (line) =>
+            String(
+              line?.account_code ||
+                accountMap.get(
+                  String(
+                    line?.account
+                  )
+                )?.code ||
+                ""
+            ).startsWith("10")
+        );
+
+      cashLines.forEach(
+        (cashLine) => {
+          const movement =
+            lineAmount(
+              cashLine,
+              "debit"
+            ) -
+            lineAmount(
+              cashLine,
+              "credit"
+            );
+
+          const counterpart =
+            lines.find(
+              (line) =>
+                String(
+                  line?.id
+                ) !==
+                String(
+                  cashLine?.id
+                )
+            );
+
+          const account =
+            accountMap.get(
+              String(
+                counterpart?.account
+              )
+            );
+
+          let category =
+            String(
+              account?.cash_flow_category ||
+                ""
+            ).toUpperCase();
+
+          if (
+            ![
+              "OPERATING",
+              "INVESTING",
+              "FINANCING",
+            ].includes(category)
+          ) {
+            const type =
+              account?.account_type ||
+              accountTypeFromCode(
+                counterpart?.account_code
+              );
+
+            if (
+              [
+                "REVENUE",
+                "COGS",
+                "EXPENSE",
+                "LIABILITY",
+              ].includes(type)
+            ) {
+              category =
+                "OPERATING";
+            } else if (
+              type === "EQUITY"
+            ) {
+              category =
+                "FINANCING";
+            } else {
+              category =
+                "INVESTING";
+            }
+          }
+
+          result[category] +=
+            movement;
+        }
+      );
+    }
+  );
+
+  return result;
+}
+
 
 export default function Dashboard() {
 
   const {
     currentCompany,
+    workspaceCurrency,
   } = useCompany();
 
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [error, setError] =
+    useState(null);
 
 
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
+  const [financialData, setFinancialData] =
+    useState({
+      incomeStatement: null,
+      balanceSheet: null,
+      trialBalance: null,
+      cashFlow: null,
+    });
 
 
-  const [
-    error,
-    setError,
-  ] = useState(null);
+  const [invoices, setInvoices] =
+    useState([]);
+
+  const [bills, setBills] =
+    useState([]);
+
+  const [journalEntries, setJournalEntries] =
+    useState([]);
+
+  const [accounts, setAccounts] =
+    useState([]);
 
 
-  const [
-    financialData,
-    setFinancialData,
-  ] = useState({
-    incomeStatement: null,
-    balanceSheet: null,
-    trialBalance: null,
-    cashFlow: null,
-  });
-
-
-  const [
-    invoices,
-    setInvoices,
-  ] = useState([]);
-
-
-  const [
-    bills,
-    setBills,
-  ] = useState([]);
-
-
-  const [
-    dateRange,
-    setDateRange,
-  ] = useState("all");
+  const [dateRange, setDateRange] =
+    useState("all");
 
 
   const companyId =
     currentCompany?.id;
 
 
-  /* ==========================================================
-     DATE RANGE
-     ========================================================== */
+  // ==========================================================
+  // DATE RANGE
+  // ==========================================================
 
   const dates = useMemo(() => {
 
-    const end =
-      new Date();
+    const end = new Date();
 
     let start = null;
 
-
-    if (
-      dateRange === "month"
-    ) {
-      start =
-        new Date(
-          end.getFullYear(),
-          end.getMonth(),
-          1
-        );
+    if (dateRange === "month") {
+      start = new Date(
+        end.getFullYear(),
+        end.getMonth(),
+        1
+      );
     }
 
-
-    if (
-      dateRange === "quarter"
-    ) {
+    if (dateRange === "quarter") {
 
       const quarterStartMonth =
         Math.floor(
           end.getMonth() / 3
         ) * 3;
 
-      start =
-        new Date(
-          end.getFullYear(),
-          quarterStartMonth,
-          1
-        );
+      start = new Date(
+        end.getFullYear(),
+        quarterStartMonth,
+        1
+      );
     }
 
-
-    if (
-      dateRange === "year"
-    ) {
-      start =
-        new Date(
-          end.getFullYear(),
-          0,
-          1
-        );
+    if (dateRange === "year") {
+      start = new Date(
+        end.getFullYear(),
+        0,
+        1
+      );
     }
 
+    const toApiDate = (date) => {
+      if (!date) {
+        return null;
+      }
 
-    const toApiDate =
-      (date) => {
-
-        if (!date) {
-          return null;
-        }
-
-        return date
-          .toISOString()
-          .split("T")[0];
-      };
-
+      return date
+        .toISOString()
+        .split("T")[0];
+    };
 
     return {
-      startDate:
-        toApiDate(start),
-
-      endDate:
-        toApiDate(end),
+      startDate: toApiDate(start),
+      endDate: toApiDate(end),
     };
 
   }, [dateRange]);
 
 
-  /* ==========================================================
-     LOAD DASHBOARD
-     ========================================================== */
+  // ==========================================================
+  // LOAD DASHBOARD
+  // ==========================================================
 
-  const loadDashboard =
-    useCallback(
-      async (
-        isRefresh = false
-      ) => {
+  const loadDashboard = useCallback(
+    async (isRefresh = false) => {
+      if (!companyId) {
+        setLoading(false);
+        return;
+      }
 
-        if (!companyId) {
-          setLoading(false);
-          return;
-        }
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
+      setError(null);
 
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
+      const companyQuery =
+        `?company=${companyId}`;
 
+      try {
+        const [
+          journalData,
+          accountData,
+          invoiceData,
+          billData,
+        ] = await Promise.all([
+          api.get(
+            `/api/accounting/journal-entries/${companyQuery}`
+          ),
+          api.get(
+            `/api/accounting/accounts/${companyQuery}`
+          ).catch(() => null),
+          api.get(
+            `/api/invoicing/invoices/${companyQuery}`
+          ).catch(() => null),
+          api.get(
+            `/api/invoicing/supplier-bills/${companyQuery}`
+          ).catch(() => null),
+        ]);
 
-        setError(null);
+        const journalList =
+          extractList(journalData);
 
+        const accountList =
+          extractList(accountData);
 
-        const companyQuery =
-          `?company=${companyId}`;
+        const invoiceList =
+          extractList(invoiceData);
 
+        const billList =
+          extractList(billData);
 
-        const startQuery =
+        const selectedCurrency =
+          currencyCode(
+            workspaceCurrency ||
+              currentCompany?.currency ||
+              "USD"
+          );
+
+        /*
+         * Workspace isolation:
+         * Financial dashboard totals must be calculated from transactions
+         * recorded in the active workspace currency only.
+         *
+         * USD workspace -> USD invoices/bills.
+         * LRD workspace -> LRD invoices/bills.
+         *
+         * We intentionally do NOT convert one currency into another here.
+         * The dashboard is a transaction-currency view; functional-currency
+         * reporting belongs to accounting reports that explicitly request it.
+         */
+        const currencyInvoices =
+          invoiceList.filter(
+            (invoice) =>
+              currencyCode(
+                invoice?.currency ||
+                  invoice?.invoice_currency ||
+                  ""
+              ) === selectedCurrency
+          );
+
+        const currencyBills =
+          billList.filter(
+            (bill) =>
+              currencyCode(
+                bill?.currency ||
+                  bill?.bill_currency ||
+                  ""
+              ) === selectedCurrency
+          );
+
+        setJournalEntries(journalList);
+        setAccounts(accountList);
+        setInvoices(currencyInvoices);
+        setBills(currencyBills);
+
+        const accountMap = new Map(
+          accountList.map(
+            (account) => [
+              String(account.id),
+              account,
+            ]
+          )
+        );
+
+        const postedEntries =
+          journalList.filter(
+            (entry) =>
+              String(
+                entry?.status || ""
+              ).toUpperCase() === "POSTED"
+          );
+
+        /*
+         * Keep entries intact here because a legitimate cross-currency
+         * journal entry can contain lines in different currencies.
+         * currencyLines() below is therefore the authoritative workspace
+         * filter for accounting values.
+         */
+        const currencyLines = (
+          entry
+        ) =>
+          (entry?.lines || []).filter(
+            (line) =>
+              getLineCurrency(
+                line,
+                entry
+              ) === selectedCurrency
+          );
+
+        const periodEntries =
+          postedEntries.filter(
+            (entry) => {
+              const date =
+                String(
+                  entry?.transaction_date || ""
+                );
+
+              return (
+                (!dates.startDate ||
+                  date >= dates.startDate) &&
+                (!dates.endDate ||
+                  date <= dates.endDate)
+              );
+            }
+          );
+
+        const asOfEntries =
+          postedEntries.filter(
+            (entry) => {
+              const date =
+                String(
+                  entry?.transaction_date || ""
+                );
+
+              return (
+                !dates.endDate ||
+                date <= dates.endDate
+              );
+            }
+          );
+
+        const beforePeriodEntries =
           dates.startDate
-            ? `&start_date=${dates.startDate}`
-            : "";
+            ? postedEntries.filter(
+                (entry) =>
+                  String(
+                    entry?.transaction_date || ""
+                  ) < dates.startDate
+              )
+            : [];
 
+        const aggregateAccounts = (
+          entries
+        ) => {
+          const map = new Map();
 
-        const endQuery =
-          dates.endDate
-            ? `&end_date=${dates.endDate}`
-            : "";
+          entries.forEach(
+            (entry) => {
+              currencyLines(entry).forEach(
+                (line) => {
+                  const id = String(
+                    line?.account
+                  );
 
+                  const account =
+                    accountMap.get(id);
 
-        try {
+                  const code =
+                    line?.account_code ||
+                    account?.code ||
+                    "";
 
-          const [
-            incomeStatement,
-            balanceSheet,
-            trialBalance,
-            cashFlow,
-            invoiceData,
-            billData,
-          ] =
-            await Promise.all([
+                  const type =
+                    account?.account_type ||
+                    accountTypeFromCode(
+                      code
+                    );
 
-              api.get(
-                `/api/accounting/reports/income-statement/${companyQuery}${startQuery}${endQuery}`
-              ),
+                  if (!map.has(id)) {
+                    map.set(id, {
+                      account:
+                        line?.account,
+                      account_code: code,
+                      account_name:
+                        line?.account_name ||
+                        account?.name ||
+                        "Account",
+                      account_type: type,
+                      cash_flow_category:
+                        account?.cash_flow_category ||
+                        "NONE",
+                      debit: 0,
+                      credit: 0,
+                    });
+                  }
 
-              api.get(
-                `/api/accounting/reports/balance-sheet/${companyQuery}${
-                  dates.endDate
-                    ? `&as_of_date=${dates.endDate}`
-                    : ""
-                }`
-              ),
+                  const row =
+                    map.get(id);
 
-              api.get(
-                `/api/accounting/reports/trial-balance/${companyQuery}${startQuery}${endQuery}`
-              ),
+                  row.debit +=
+                    lineAmount(
+                      line,
+                      "debit"
+                    );
 
-              api.get(
-                `/api/accounting/reports/cash-flow/${companyQuery}${startQuery}${endQuery}`
-              ),
+                  row.credit +=
+                    lineAmount(
+                      line,
+                      "credit"
+                    );
+                }
+              );
+            }
+          );
 
-              api.get(
-                `/api/invoicing/invoices/${companyQuery}`
-              ).catch(
-                () => null
-              ),
+          return Array.from(
+            map.values()
+          );
+        };
 
-              api.get(
-                `/api/invoicing/supplier-bills/${companyQuery}`
-              ).catch(
-                () => null
-              ),
+        const periodAccounts =
+          aggregateAccounts(
+            periodEntries
+          );
 
-            ]);
+        const asOfAccounts =
+          aggregateAccounts(
+            asOfEntries
+          );
 
+        const beforePeriodAccounts =
+          aggregateAccounts(
+            beforePeriodEntries
+          );
 
-          setFinancialData({
-            incomeStatement,
-            balanceSheet,
-            trialBalance,
-            cashFlow,
-          });
-
-
-          setInvoices(
-            extractList(
-              invoiceData
+        const sumType = (
+          rows,
+          type,
+          normalBalance
+        ) =>
+          rows
+            .filter(
+              (row) =>
+                row.account_type === type
             )
+            .reduce(
+              (total, row) =>
+                total +
+                (normalBalance ===
+                "DEBIT"
+                  ? row.debit -
+                    row.credit
+                  : row.credit -
+                    row.debit),
+              0
+            );
+
+        const revenue =
+          sumType(
+            periodAccounts,
+            "REVENUE",
+            "CREDIT"
           );
 
+        const cogs =
+          sumType(
+            periodAccounts,
+            "COGS",
+            "DEBIT"
+          );
 
-          setBills(
-            extractList(
-              billData
+        const expenses =
+          sumType(
+            periodAccounts,
+            "EXPENSE",
+            "DEBIT"
+          );
+
+        const grossProfit =
+          revenue - cogs;
+
+        const netProfit =
+          grossProfit - expenses;
+
+        const assets =
+          sumType(
+            asOfAccounts,
+            "ASSET",
+            "DEBIT"
+          );
+
+        const liabilities =
+          sumType(
+            asOfAccounts,
+            "LIABILITY",
+            "CREDIT"
+          );
+
+        const equityAccounts =
+          sumType(
+            asOfAccounts,
+            "EQUITY",
+            "CREDIT"
+          );
+
+        const asOfRevenue =
+          sumType(
+            asOfAccounts,
+            "REVENUE",
+            "CREDIT"
+          );
+
+        const asOfCogs =
+          sumType(
+            asOfAccounts,
+            "COGS",
+            "DEBIT"
+          );
+
+        const asOfExpenses =
+          sumType(
+            asOfAccounts,
+            "EXPENSE",
+            "DEBIT"
+          );
+
+        const currentProfit =
+          asOfRevenue -
+          asOfCogs -
+          asOfExpenses;
+
+        const equityWithProfit =
+          equityAccounts +
+          currentProfit;
+
+        const cashRows =
+          asOfAccounts.filter(
+            (row) =>
+              row.account_type ===
+                "ASSET" &&
+              String(
+                row.account_code || ""
+              ).startsWith("10")
+          );
+
+        const closingCash =
+          cashRows.reduce(
+            (total, row) =>
+              total +
+              row.debit -
+              row.credit,
+            0
+          );
+
+        const openingCash =
+          beforePeriodAccounts
+            .filter(
+              (row) =>
+                row.account_type ===
+                  "ASSET" &&
+                String(
+                  row.account_code || ""
+                ).startsWith("10")
             )
+            .reduce(
+              (total, row) =>
+                total +
+                row.debit -
+                row.credit,
+              0
+            );
+
+        const netCashChange =
+          currentEntriesCashChange(
+            periodEntries,
+            selectedCurrency,
+            accountMap
           );
 
-        } catch (err) {
-
-          console.error(
-            "Dashboard loading error:",
-            err
+        const cashComposition =
+          getCashComposition(
+            periodEntries,
+            selectedCurrency,
+            accountMap
           );
 
+        setFinancialData({
+          incomeStatement: {
+            total_revenue: revenue,
+            total_cost_of_goods_sold:
+              cogs,
+            total_expenses:
+              expenses,
+            gross_profit:
+              grossProfit,
+            net_profit:
+              netProfit,
+            is_profitable:
+              netProfit > 0,
+          },
+          balanceSheet: {
+            total_assets:
+              assets,
+            total_liabilities:
+              liabilities,
+            total_equity_with_profit:
+              equityWithProfit,
+            is_balanced:
+              Math.abs(
+                assets -
+                  (liabilities +
+                    equityWithProfit)
+              ) < 0.005,
+          },
+          trialBalance: {
+            accounts:
+              periodAccounts,
+            is_balanced:
+              Math.abs(
+                periodAccounts.reduce(
+                  (total, row) =>
+                    total +
+                    row.debit -
+                    row.credit,
+                  0
+                )
+              ) < 0.005,
+          },
+          cashFlow: {
+            opening_cash_balance:
+              openingCash,
+            net_change_in_cash:
+              netCashChange,
+            closing_cash_balance:
+              closingCash,
+            total_operating_activities:
+              cashComposition.OPERATING,
+            total_investing_activities:
+              cashComposition.INVESTING,
+            total_financing_activities:
+              cashComposition.FINANCING,
+            is_reconciled:
+              Math.abs(
+                openingCash +
+                  netCashChange -
+                  closingCash
+              ) < 0.005,
+          },
+        });
+      } catch (err) {
+        console.error(
+          "Dashboard loading error:",
+          err
+        );
 
-          setError(
-            err.message ||
-            "Unable to load dashboard data."
-          );
-
-        } finally {
-
-          setLoading(false);
-          setRefreshing(false);
-
-        }
-
-      },
-      [
-        companyId,
-        dates.startDate,
-        dates.endDate,
-      ]
-    );
+        setError(
+          err.message ||
+          "Unable to load dashboard data."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [
+      companyId,
+      currentCompany?.currency,
+      workspaceCurrency,
+      dates.startDate,
+      dates.endDate,
+    ]
+  );
 
 
   useEffect(() => {
-
     loadDashboard();
-
   }, [loadDashboard]);
 
 
-  /* ==========================================================
-     FINANCIAL VALUES
-     ========================================================== */
+  // ==========================================================
+  // FINANCIAL VALUES
+  // ==========================================================
 
   const income =
-    financialData
-      .incomeStatement;
+    financialData.incomeStatement;
 
 
   const balance =
-    financialData
-      .balanceSheet;
+    financialData.balanceSheet;
 
 
   const cashFlow =
-    financialData
-      .cashFlow;
+    financialData.cashFlow;
 
 
   const trialBalance =
-    financialData
-      .trialBalance;
+    financialData.trialBalance;
 
 
-  const currency =
-    currentCompany?.currency ||
-    "USD";
+  const currency = currencyCode(
+    workspaceCurrency ||
+      currentCompany?.currency ||
+      "USD"
+  );
 
 
   const revenue =
-    number(
-      income?.total_revenue
-    );
+    number(income?.total_revenue);
 
 
   const cogs =
     number(
-      income
-        ?.total_cost_of_goods_sold
+      income?.total_cost_of_goods_sold
     );
 
 
@@ -701,327 +1079,266 @@ export default function Dashboard() {
 
 
   const assets =
-    number(
-      balance?.total_assets
-    );
+    number(balance?.total_assets);
 
 
   const liabilities =
-    number(
-      balance?.total_liabilities
-    );
+    number(balance?.total_liabilities);
 
 
   const equity =
     number(
-      balance
-        ?.total_equity_with_profit
+      balance?.total_equity_with_profit
     );
 
 
   const openingCash =
     number(
-      cashFlow
-        ?.opening_cash_balance
+      cashFlow?.opening_cash_balance
     );
 
 
   const netCashChange =
     number(
-      cashFlow
-        ?.net_change_in_cash
+      cashFlow?.net_change_in_cash
     );
 
 
   const closingCash =
     number(
-      cashFlow
-        ?.closing_cash_balance
+      cashFlow?.closing_cash_balance
     );
 
 
-  /* ==========================================================
-     AR / AP SUMMARY
-     ========================================================== */
+  // ==========================================================
+  // AR / AP SUMMARY
+  // ==========================================================
 
   const receivableInvoices =
-    invoices.filter(
-      (invoice) => {
+    invoices.filter((invoice) => {
 
-        const status =
-          String(
-            invoice?.status ||
-            ""
-          ).toUpperCase();
+      const status =
+        String(
+          invoice?.status || ""
+        ).toUpperCase();
 
+      return ![
+        "PAID",
+        "CANCELLED",
+        "VOID",
+      ].includes(status);
 
-        return ![
-          "PAID",
-          "CANCELLED",
-          "VOID",
-        ].includes(status);
-
-      }
-    );
+    });
 
 
   const payableBills =
-    bills.filter(
-      (bill) => {
+    bills.filter((bill) => {
 
-        const status =
-          String(
-            bill?.status ||
+      const status =
+        String(
+          bill?.status || ""
+        ).toUpperCase();
+
+      return ![
+        "PAID",
+        "CANCELLED",
+        "VOID",
+      ].includes(status);
+
+    });
+
+
+  const receivables = receivableInvoices.reduce(
+    (total, invoice) => {
+
+      const invoiceCurrency =
+        currencyCode(
+          invoice?.currency ||
+            invoice?.invoice_currency ||
             ""
-          ).toUpperCase();
+        );
 
-
-        return ![
-          "PAID",
-          "CANCELLED",
-          "VOID",
-        ].includes(status);
-
+      if (invoiceCurrency !== currency) {
+        return total;
       }
-    );
 
-
-  const receivables =
-    receivableInvoices.reduce(
-      (
-        total,
-        invoice
-      ) => {
-
-        return (
-          total +
-          number(
-            invoice.balance_due ??
-            invoice.amount_due ??
-            invoice.outstanding_amount ??
-            invoice.total
-          )
+      return total +
+        number(
+          invoice.balance_due ??
+          invoice.amount_due ??
+          invoice.outstanding_amount ??
+          invoice.total
         );
 
-      },
-      0
-    );
+    },
+    0
+  );
 
 
-  const payables =
-    payableBills.reduce(
-      (
-        total,
-        bill
-      ) => {
+  const payables = payableBills.reduce(
+    (total, bill) => {
 
-        return (
-          total +
-          number(
-            bill.balance_due ??
-            bill.amount_due ??
-            bill.outstanding_amount ??
-            bill.total
-          )
+      const billCurrency =
+        currencyCode(
+          bill?.currency ||
+            bill?.bill_currency ||
+            ""
         );
 
-      },
-      0
-    );
+      if (billCurrency !== currency) {
+        return total;
+      }
+
+      return total +
+        number(
+          bill.balance_due ??
+          bill.amount_due ??
+          bill.outstanding_amount ??
+          bill.total
+        );
+
+    },
+    0
+  );
 
 
-  /* ==========================================================
-     CHART DATA
-     ========================================================== */
+  // ==========================================================
+  // CHART DATA
+  // ==========================================================
 
   const profitabilityData = [
-
     {
       name: "Revenue",
       amount: revenue,
     },
-
     {
       name: "COGS",
       amount: cogs,
     },
-
     {
       name: "Expenses",
       amount: expenses,
     },
-
     {
       name: "Net Profit",
       amount: netProfit,
     },
-
   ];
 
 
   const financialPositionData = [
-
     {
       name: "Assets",
       amount: assets,
     },
-
     {
       name: "Liabilities",
       amount: liabilities,
     },
-
     {
       name: "Equity",
       amount: equity,
     },
-
   ];
 
 
   const cashData = [
-
     {
       name: "Opening",
       amount: openingCash,
     },
-
     {
       name: "Net Change",
       amount: netCashChange,
     },
-
     {
       name: "Closing",
       amount: closingCash,
     },
-
   ];
 
 
   const cashCompositionData = [
-
     {
       name: "Operating",
       value: Math.abs(
         number(
-          cashFlow
-            ?.total_operating_activities
+          cashFlow?.total_operating_activities
         )
       ),
     },
-
     {
       name: "Investing",
       value: Math.abs(
         number(
-          cashFlow
-            ?.total_investing_activities
+          cashFlow?.total_investing_activities
         )
       ),
     },
-
     {
       name: "Financing",
       value: Math.abs(
         number(
-          cashFlow
-            ?.total_financing_activities
+          cashFlow?.total_financing_activities
         )
       ),
     },
-
   ].filter(
-    (item) =>
-      item.value > 0
+    (item) => item.value > 0
   );
 
 
-  /* ==========================================================
-     RECENT ACTIVITY
-     ========================================================== */
+  // ==========================================================
+  // RECENT ACTIVITY
+  // ==========================================================
 
-  const recentTransactions =
-    useMemo(() => {
+  const recentTransactions = useMemo(() => {
 
-      const transactions =
-        [];
+    const transactions = [];
 
-      const accounts =
-        trialBalance
-          ?.accounts || [];
+    const accounts =
+      trialBalance?.accounts || [];
 
 
-      accounts.forEach(
-        (account) => {
+    accounts.forEach((account) => {
 
-          if (
-            number(
-              account.debit
-            ) === 0 &&
-            number(
-              account.credit
-            ) === 0
-          ) {
-            return;
-          }
+      if (
+        number(account.debit) === 0 &&
+        number(account.credit) === 0
+      ) {
+        return;
+      }
 
+      transactions.push({
+        id: account.account,
+        code: account.account_code,
+        name: account.account_name,
+        type: account.account_type,
+        debit: number(account.debit),
+        credit: number(account.credit),
+      });
 
-          transactions.push({
-
-            id:
-              account.account,
-
-            code:
-              account.account_code,
-
-            name:
-              account.account_name,
-
-            type:
-              account.account_type,
-
-            debit:
-              number(
-                account.debit
-              ),
-
-            credit:
-              number(
-                account.credit
-              ),
-
-          });
-
-        }
-      );
+    });
 
 
-      return transactions
-        .sort(
-          (a, b) =>
-            (
-              b.debit +
-              b.credit
-            ) -
-            (
-              a.debit +
-              a.credit
-            )
-        )
-        .slice(0, 6);
+    return transactions
+      .sort(
+        (a, b) =>
+          (b.debit + b.credit) -
+          (a.debit + a.credit)
+      )
+      .slice(0, 6);
 
-    }, [trialBalance]);
+  }, [trialBalance]);
 
 
-  /* ==========================================================
-     LOADING
-     ========================================================== */
+  // ==========================================================
+  // LOADING
+  // ==========================================================
 
   if (
     loading &&
-    !financialData
-      .incomeStatement
+    !financialData.incomeStatement
   ) {
 
     return (
@@ -1034,8 +1351,8 @@ export default function Dashboard() {
         </h2>
 
         <p>
-          Loading financial
-          information for{" "}
+          Loading financial information
+          for{" "}
           {currentCompany?.name ||
             "your company"}.
         </p>
@@ -1046,9 +1363,9 @@ export default function Dashboard() {
   }
 
 
-  /* ==========================================================
-     NO COMPANY
-     ========================================================== */
+  // ==========================================================
+  // NO COMPANY
+  // ==========================================================
 
   if (!companyId) {
 
@@ -1056,24 +1373,17 @@ export default function Dashboard() {
       <div className="dashboard-no-company">
 
         <div className="dashboard-no-company-icon">
-
-          <BriefcaseBusiness
-            size={28}
-          />
-
+          <BriefcaseBusiness size={28} />
         </div>
-
 
         <h2>
           Select a company
         </h2>
 
-
         <p>
-          Select a company from
-          the top-right company
-          selector to view its
-          financial dashboard.
+          Select a company from the
+          top-right company selector to
+          view its financial dashboard.
         </p>
 
       </div>
@@ -1082,37 +1392,29 @@ export default function Dashboard() {
   }
 
 
-  /* ==========================================================
-     ERROR
-     ========================================================== */
+  // ==========================================================
+  // ERROR
+  // ==========================================================
 
   if (
     error &&
-    !financialData
-      .incomeStatement
+    !financialData.incomeStatement
   ) {
 
     return (
       <div className="dashboard-error">
 
         <div className="dashboard-error-icon">
-
-          <Activity
-            size={25}
-          />
-
+          <Activity size={25} />
         </div>
-
 
         <h2>
           Unable to load dashboard
         </h2>
 
-
         <p>
           {error}
         </p>
-
 
         <button
           type="button"
@@ -1120,13 +1422,8 @@ export default function Dashboard() {
             loadDashboard(true)
           }
         >
-
-          <RefreshCw
-            size={16}
-          />
-
+          <RefreshCw size={16} />
           Try Again
-
         </button>
 
       </div>
@@ -1135,13 +1432,12 @@ export default function Dashboard() {
   }
 
 
-  /* ==========================================================
-     DASHBOARD
-     ========================================================== */
+  // ==========================================================
+  // DASHBOARD
+  // ==========================================================
 
   return (
     <div className="dashboard-page">
-
 
       {/* ======================================================
           HEADER
@@ -1155,18 +1451,17 @@ export default function Dashboard() {
             FINANCIAL OVERVIEW
           </div>
 
-
           <h1>
             Good to see you.
           </h1>
-
 
           <p>
             Here's how{" "}
             <strong>
               {currentCompany?.name}
             </strong>{" "}
-            is performing.
+            is performing in the{" "}
+            <strong>{currency} workspace</strong>.
           </p>
 
         </div>
@@ -1183,7 +1478,6 @@ export default function Dashboard() {
             }
             className="dashboard-period-select"
           >
-
             <option value="all">
               All time
             </option>
@@ -1199,7 +1493,6 @@ export default function Dashboard() {
             <option value="year">
               This year
             </option>
-
           </select>
 
 
@@ -1211,7 +1504,6 @@ export default function Dashboard() {
             }
             disabled={refreshing}
           >
-
             <RefreshCw
               size={16}
               className={
@@ -1222,7 +1514,6 @@ export default function Dashboard() {
             />
 
             Refresh
-
           </button>
 
         </div>
@@ -1236,13 +1527,8 @@ export default function Dashboard() {
 
       {error && (
         <div className="dashboard-inline-error">
-
-          <Activity
-            size={16}
-          />
-
+          <Activity size={16} />
           {error}
-
         </div>
       )}
 
@@ -1349,7 +1635,7 @@ export default function Dashboard() {
             grossProfit,
             currency
           )}
-          subtitle="Revenue less COGS"
+          subtitle={`Revenue less COGS`}
           icon={BarChart3}
         />
 
@@ -1368,13 +1654,10 @@ export default function Dashboard() {
 
 
       {/* ======================================================
-          PROFITABILITY + FINANCIAL POSITION
+          MAIN CHARTS
           ====================================================== */}
 
       <div className="dashboard-chart-grid">
-
-
-        {/* PROFITABILITY */}
 
         <SectionCard
           title="Profitability Overview"
@@ -1383,59 +1666,47 @@ export default function Dashboard() {
         >
 
           {profitabilityData.some(
-            (item) =>
-              item.amount !== 0
+            (item) => item.amount !== 0
           ) ? (
 
             <div className="dashboard-chart">
-
               <ResponsiveContainer
                 width="100%"
                 height={300}
               >
-
                 <BarChart
                   data={
                     profitabilityData
                   }
                   margin={{
-                    top: 12,
-                    right: 15,
+                    top: 10,
+                    right: 10,
                     left: 0,
-                    bottom: 5,
+                    bottom: 0,
                   }}
                 >
 
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
-                    stroke="#E8EDF3"
                   />
-
 
                   <XAxis
                     dataKey="name"
                     tick={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      fill: "#475569",
+                      fontSize: 11,
                     }}
                     axisLine={false}
                     tickLine={false}
-                    dy={8}
                   />
-
 
                   <YAxis
                     tick={{
-                      fontSize: 12,
-                      fill: "#64748B",
+                      fontSize: 10,
                     }}
                     axisLine={false}
                     tickLine={false}
-                    width={52}
                   />
-
 
                   <Tooltip
                     formatter={(value) =>
@@ -1444,116 +1715,28 @@ export default function Dashboard() {
                         currency
                       )
                     }
-                    contentStyle={{
-                      borderRadius: 10,
-                      border:
-                        "1px solid #E2E8F0",
-                      backgroundColor:
-                        "#FFFFFF",
-                      boxShadow:
-                        "0 10px 30px rgba(7, 26, 61, 0.12)",
-                      padding:
-                        "10px 14px",
-                    }}
-                    labelStyle={{
-                      color:
-                        "#071A3D",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      marginBottom: 4,
-                    }}
-                    itemStyle={{
-                      color:
-                        "#475569",
-                      fontSize: 13,
-                    }}
                   />
-
 
                   <Bar
                     dataKey="amount"
                     radius={[
-                      8,
-                      8,
-                      2,
-                      2,
+                      5,
+                      5,
+                      0,
+                      0,
                     ]}
-                    barSize={48}
-                  >
-
-                    {profitabilityData.map(
-                      (entry) => {
-
-                        let fill =
-                          CHART_COLORS.navy;
-
-
-                        if (
-                          entry.name ===
-                          "Revenue"
-                        ) {
-                          fill =
-                            CHART_COLORS.gold;
-                        }
-
-
-                        if (
-                          entry.name ===
-                          "COGS"
-                        ) {
-                          fill =
-                            CHART_COLORS.blue;
-                        }
-
-
-                        if (
-                          entry.name ===
-                          "Expenses"
-                        ) {
-                          fill =
-                            CHART_COLORS.warmGold;
-                        }
-
-
-                        if (
-                          entry.name ===
-                          "Net Profit"
-                        ) {
-                          fill =
-                            CHART_COLORS.navy;
-                        }
-
-
-                        return (
-                          <Cell
-                            key={
-                              entry.name
-                            }
-                            fill={fill}
-                          />
-                        );
-
-                      }
-                    )}
-
-                  </Bar>
+                  />
 
                 </BarChart>
-
               </ResponsiveContainer>
-
             </div>
 
           ) : (
-
             <EmptyState />
-
           )}
 
         </SectionCard>
 
-
-        {/* FINANCIAL POSITION */}
 
         <SectionCard
           title="Financial Position"
@@ -1562,17 +1745,14 @@ export default function Dashboard() {
         >
 
           {financialPositionData.some(
-            (item) =>
-              item.amount !== 0
+            (item) => item.amount !== 0
           ) ? (
 
             <div className="dashboard-chart">
-
               <ResponsiveContainer
                 width="100%"
                 height={300}
               >
-
                 <BarChart
                   data={
                     financialPositionData
@@ -1581,7 +1761,7 @@ export default function Dashboard() {
                   margin={{
                     top: 10,
                     right: 20,
-                    left: 5,
+                    left: 20,
                     bottom: 0,
                   }}
                 >
@@ -1589,34 +1769,26 @@ export default function Dashboard() {
                   <CartesianGrid
                     strokeDasharray="3 3"
                     horizontal={false}
-                    stroke="#E8EDF3"
                   />
-
 
                   <XAxis
                     type="number"
                     tick={{
-                      fontSize: 12,
-                      fill: "#64748B",
+                      fontSize: 10,
                     }}
                     axisLine={false}
                     tickLine={false}
                   />
-
 
                   <YAxis
                     dataKey="name"
                     type="category"
                     tick={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      fill: "#475569",
+                      fontSize: 11,
                     }}
                     axisLine={false}
                     tickLine={false}
-                    width={85}
                   />
-
 
                   <Tooltip
                     formatter={(value) =>
@@ -1625,101 +1797,24 @@ export default function Dashboard() {
                         currency
                       )
                     }
-                    contentStyle={{
-                      borderRadius: 10,
-                      border:
-                        "1px solid #E2E8F0",
-                      backgroundColor:
-                        "#FFFFFF",
-                      boxShadow:
-                        "0 10px 30px rgba(7, 26, 61, 0.12)",
-                      padding:
-                        "10px 14px",
-                    }}
-                    labelStyle={{
-                      color:
-                        "#071A3D",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      marginBottom: 4,
-                    }}
-                    itemStyle={{
-                      color:
-                        "#475569",
-                      fontSize: 13,
-                    }}
                   />
-
 
                   <Bar
                     dataKey="amount"
                     radius={[
                       0,
-                      8,
-                      8,
+                      5,
+                      5,
                       0,
                     ]}
-                    barSize={32}
-                  >
-
-                    {financialPositionData.map(
-                      (entry) => {
-
-                        let fill =
-                          CHART_COLORS.navy;
-
-
-                        if (
-                          entry.name ===
-                          "Assets"
-                        ) {
-                          fill =
-                            CHART_COLORS.gold;
-                        }
-
-
-                        if (
-                          entry.name ===
-                          "Liabilities"
-                        ) {
-                          fill =
-                            CHART_COLORS.blue;
-                        }
-
-
-                        if (
-                          entry.name ===
-                          "Equity"
-                        ) {
-                          fill =
-                            CHART_COLORS.navy;
-                        }
-
-
-                        return (
-                          <Cell
-                            key={
-                              entry.name
-                            }
-                            fill={fill}
-                          />
-                        );
-
-                      }
-                    )}
-
-                  </Bar>
+                  />
 
                 </BarChart>
-
               </ResponsiveContainer>
-
             </div>
 
           ) : (
-
             <EmptyState />
-
           )}
 
         </SectionCard>
@@ -1728,13 +1823,10 @@ export default function Dashboard() {
 
 
       {/* ======================================================
-          CASH FLOW + CASH COMPOSITION
+          CASH FLOW + COMPOSITION
           ====================================================== */}
 
       <div className="dashboard-chart-grid">
-
-
-        {/* CASH FLOW */}
 
         <SectionCard
           title="Cash Flow"
@@ -1743,29 +1835,25 @@ export default function Dashboard() {
         >
 
           {cashData.some(
-            (item) =>
-              item.amount !== 0
+            (item) => item.amount !== 0
           ) ? (
 
             <div className="dashboard-chart">
-
               <ResponsiveContainer
                 width="100%"
                 height={280}
               >
-
                 <AreaChart
                   data={cashData}
                   margin={{
                     top: 10,
-                    right: 15,
+                    right: 10,
                     left: 0,
                     bottom: 0,
                   }}
                 >
 
                   <defs>
-
                     <linearGradient
                       id="cashGradient"
                       x1="0"
@@ -1773,58 +1861,39 @@ export default function Dashboard() {
                       x2="0"
                       y2="1"
                     >
-
                       <stop
-                        offset="0%"
-                        stopColor={
-                          CHART_COLORS.gold
-                        }
-                        stopOpacity={0.30}
+                        offset="5%"
+                        stopOpacity={0.3}
                       />
 
                       <stop
-                        offset="100%"
-                        stopColor={
-                          CHART_COLORS.gold
-                        }
-                        stopOpacity={0.02}
+                        offset="95%"
+                        stopOpacity={0}
                       />
-
                     </linearGradient>
-
                   </defs>
-
 
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
-                    stroke="#E8EDF3"
                   />
-
 
                   <XAxis
                     dataKey="name"
                     tick={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      fill: "#475569",
+                      fontSize: 11,
                     }}
                     axisLine={false}
                     tickLine={false}
-                    dy={8}
                   />
-
 
                   <YAxis
                     tick={{
-                      fontSize: 12,
-                      fill: "#64748B",
+                      fontSize: 10,
                     }}
                     axisLine={false}
                     tickLine={false}
-                    width={52}
                   />
-
 
                   <Tooltip
                     formatter={(value) =>
@@ -1833,66 +1902,25 @@ export default function Dashboard() {
                         currency
                       )
                     }
-                    contentStyle={{
-                      borderRadius: 10,
-                      border:
-                        "1px solid #E2E8F0",
-                      backgroundColor:
-                        "#FFFFFF",
-                      boxShadow:
-                        "0 10px 30px rgba(7, 26, 61, 0.12)",
-                      padding:
-                        "10px 14px",
-                    }}
-                    labelStyle={{
-                      color:
-                        "#071A3D",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      marginBottom: 4,
-                    }}
-                    itemStyle={{
-                      color:
-                        "#475569",
-                      fontSize: 13,
-                    }}
                   />
-
 
                   <Area
                     type="monotone"
                     dataKey="amount"
-                    stroke={
-                      CHART_COLORS.navy
-                    }
-                    strokeWidth={3}
+                    strokeWidth={2}
                     fill="url(#cashGradient)"
-                    activeDot={{
-                      r: 6,
-                      fill:
-                        CHART_COLORS.gold,
-                      stroke:
-                        CHART_COLORS.navy,
-                      strokeWidth: 2,
-                    }}
                   />
 
                 </AreaChart>
-
               </ResponsiveContainer>
-
             </div>
 
           ) : (
-
             <EmptyState />
-
           )}
 
         </SectionCard>
 
-
-        {/* CASH COMPOSITION */}
 
         <SectionCard
           title="Cash Flow Activities"
@@ -1900,8 +1928,7 @@ export default function Dashboard() {
           icon={Banknote}
         >
 
-          {cashCompositionData.length >
-          0 ? (
+          {cashCompositionData.length > 0 ? (
 
             <div className="dashboard-pie-wrapper">
 
@@ -1909,7 +1936,6 @@ export default function Dashboard() {
                 width="100%"
                 height={240}
               >
-
                 <PieChart>
 
                   <Pie
@@ -1924,45 +1950,14 @@ export default function Dashboard() {
                     outerRadius={95}
                     paddingAngle={3}
                   >
-
                     {cashCompositionData.map(
-                      (
-                        entry,
-                        index
-                      ) => {
-
-                        const colors = [
-
-                          CHART_COLORS.gold,
-
-                          CHART_COLORS.blue,
-
-                          CHART_COLORS.navy,
-
-                        ];
-
-
-                        return (
-                          <Cell
-                            key={
-                              `cash-${index}`
-                            }
-                            fill={
-                              colors[
-                                index %
-                                colors.length
-                              ]
-                            }
-                            stroke="#FFFFFF"
-                            strokeWidth={3}
-                          />
-                        );
-
-                      }
+                      (entry, index) => (
+                        <Cell
+                          key={`cash-${index}`}
+                        />
+                      )
                     )}
-
                   </Pie>
-
 
                   <Tooltip
                     formatter={(value) =>
@@ -1971,69 +1966,25 @@ export default function Dashboard() {
                         currency
                       )
                     }
-                    contentStyle={{
-                      borderRadius: 10,
-                      border:
-                        "1px solid #E2E8F0",
-                      backgroundColor:
-                        "#FFFFFF",
-                      boxShadow:
-                        "0 10px 30px rgba(7, 26, 61, 0.12)",
-                      padding:
-                        "10px 14px",
-                    }}
-                    labelStyle={{
-                      color:
-                        "#071A3D",
-                      fontWeight: 700,
-                      fontSize: 13,
-                    }}
-                    itemStyle={{
-                      color:
-                        "#475569",
-                      fontSize: 13,
-                    }}
                   />
 
                 </PieChart>
-
               </ResponsiveContainer>
 
 
               <div className="dashboard-pie-legend">
 
                 {cashCompositionData.map(
-                  (
-                    item,
-                    index
-                  ) => (
-
+                  (item) => (
                     <div
-                      key={
-                        item.name
-                      }
+                      key={item.name}
                       className="dashboard-pie-legend-item"
                     >
-
-                      <span
-                        className="dashboard-pie-dot"
-                        style={{
-                          backgroundColor:
-                            [
-                              CHART_COLORS.gold,
-                              CHART_COLORS.blue,
-                              CHART_COLORS.navy,
-                            ][
-                              index % 3
-                            ],
-                        }}
-                      />
-
+                      <span className="dashboard-pie-dot" />
 
                       <span>
                         {item.name}
                       </span>
-
 
                       <strong>
                         {money(
@@ -2041,9 +1992,7 @@ export default function Dashboard() {
                           currency
                         )}
                       </strong>
-
                     </div>
-
                   )
                 )}
 
@@ -2052,9 +2001,7 @@ export default function Dashboard() {
             </div>
 
           ) : (
-
             <EmptyState />
-
           )}
 
         </SectionCard>
@@ -2068,8 +2015,7 @@ export default function Dashboard() {
 
       <div className="dashboard-bottom-grid">
 
-
-        {/* ACCOUNT ACTIVITY */}
+        {/* Recent activity */}
 
         <SectionCard
           title="Account Activity"
@@ -2077,29 +2023,19 @@ export default function Dashboard() {
           icon={Activity}
         >
 
-          {recentTransactions.length >
-          0 ? (
+          {recentTransactions.length > 0 ? (
 
             <div className="dashboard-activity-list">
 
               {recentTransactions.map(
-                (
-                  transaction
-                ) => (
-
+                (transaction) => (
                   <div
-                    key={
-                      transaction.id
-                    }
+                    key={transaction.id}
                     className="dashboard-activity-row"
                   >
 
                     <div className="dashboard-activity-icon">
-
-                      <FileText
-                        size={16}
-                      />
-
+                      <FileText size={16} />
                     </div>
 
 
@@ -2108,7 +2044,6 @@ export default function Dashboard() {
                       <strong>
                         {transaction.name}
                       </strong>
-
 
                       <span>
                         {transaction.code} ·{" "}
@@ -2123,7 +2058,6 @@ export default function Dashboard() {
                       <span>
                         Debit
                       </span>
-
 
                       <strong>
                         {money(
@@ -2141,7 +2075,6 @@ export default function Dashboard() {
                         Credit
                       </span>
 
-
                       <strong>
                         {money(
                           transaction.credit,
@@ -2152,24 +2085,21 @@ export default function Dashboard() {
                     </div>
 
                   </div>
-
                 )
               )}
 
             </div>
 
           ) : (
-
             <EmptyState
               message="No account activity found."
             />
-
           )}
 
         </SectionCard>
 
 
-        {/* FINANCIAL HEALTH */}
+        {/* Financial health */}
 
         <SectionCard
           title="Financial Health"
@@ -2179,13 +2109,9 @@ export default function Dashboard() {
 
           <div className="dashboard-health-list">
 
-
-            {/* TRIAL BALANCE */}
-
             <div className="dashboard-health-row">
 
               <div>
-
                 <strong>
                   Trial Balance
                 </strong>
@@ -2193,9 +2119,7 @@ export default function Dashboard() {
                 <span>
                   Debit and credit totals
                 </span>
-
               </div>
-
 
               <span
                 className={`dashboard-status ${
@@ -2204,22 +2128,17 @@ export default function Dashboard() {
                     : "dashboard-status-danger"
                 }`}
               >
-
                 {trialBalance?.is_balanced
                   ? "Balanced"
                   : "Check"}
-
               </span>
 
             </div>
 
 
-            {/* BALANCE SHEET */}
-
             <div className="dashboard-health-row">
 
               <div>
-
                 <strong>
                   Balance Sheet
                 </strong>
@@ -2227,9 +2146,7 @@ export default function Dashboard() {
                 <span>
                   Assets vs liabilities & equity
                 </span>
-
               </div>
-
 
               <span
                 className={`dashboard-status ${
@@ -2238,22 +2155,17 @@ export default function Dashboard() {
                     : "dashboard-status-danger"
                 }`}
               >
-
                 {balance?.is_balanced
                   ? "Balanced"
                   : "Check"}
-
               </span>
 
             </div>
 
 
-            {/* CASH RECONCILIATION */}
-
             <div className="dashboard-health-row">
 
               <div>
-
                 <strong>
                   Cash Reconciliation
                 </strong>
@@ -2261,9 +2173,7 @@ export default function Dashboard() {
                 <span>
                   Ledger cash verification
                 </span>
-
               </div>
-
 
               <span
                 className={`dashboard-status ${
@@ -2272,22 +2182,17 @@ export default function Dashboard() {
                     : "dashboard-status-danger"
                 }`}
               >
-
                 {cashFlow?.is_reconciled
                   ? "Reconciled"
                   : "Check"}
-
               </span>
 
             </div>
 
 
-            {/* PROFITABILITY */}
-
             <div className="dashboard-health-row">
 
               <div>
-
                 <strong>
                   Profitability
                 </strong>
@@ -2295,9 +2200,7 @@ export default function Dashboard() {
                 <span>
                   Current net result
                 </span>
-
               </div>
-
 
               <span
                 className={`dashboard-status ${
@@ -2306,11 +2209,9 @@ export default function Dashboard() {
                     : "dashboard-status-danger"
                 }`}
               >
-
                 {netProfit >= 0
                   ? "Profitable"
                   : "Loss"}
-
               </span>
 
             </div>
@@ -2328,9 +2229,7 @@ export default function Dashboard() {
 
       <div className="dashboard-footer-summary">
 
-
         <div>
-
           <span>
             Reporting company
           </span>
@@ -2338,45 +2237,34 @@ export default function Dashboard() {
           <strong>
             {currentCompany?.name}
           </strong>
-
         </div>
 
 
         <div>
-
           <span>
             Currency
           </span>
 
           <strong>
-            {normalizeCurrency(
-              currency
-            )}
+            {currency}
           </strong>
-
         </div>
 
 
         <div>
-
           <span>
             Reporting period
           </span>
 
           <strong>
-
             {dates.startDate
-
               ? `${formatDate(
                   dates.startDate
                 )} – ${formatDate(
                   dates.endDate
                 )}`
-
               : "All posted transactions"}
-
           </strong>
-
         </div>
 
       </div>

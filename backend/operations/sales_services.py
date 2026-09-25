@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from accounting.services import AccountingService
 from accounting.models import (
     Account,
@@ -13,6 +15,7 @@ from .models import (
     Product,
     Sale,
     SaleItem,
+    ProductPrice,
 )
 from .services import InventoryService
 
@@ -37,6 +40,8 @@ class SalesService:
         discount=Decimal("0.00"),
         notes="",
         complete=True,
+        currency=None,
+        exchange_rate=None,
     ):
         """
         Creates a sale and, when complete=True:
@@ -55,6 +60,14 @@ class SalesService:
             )
 
         discount = Decimal(str(discount))
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency or company.currency
+        )
+        rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=currency,
+            to_currency=company.currency, effective_date=sale_date,
+            supplied_rate=exchange_rate,
+        )
 
         if discount < 0:
             raise ValueError(
@@ -63,6 +76,8 @@ class SalesService:
 
         sale = Sale.objects.create(
             company=company,
+            currency=currency,
+            exchange_rate=rate,
             sale_number=sale_number,
             sale_date=sale_date,
             customer_name=customer_name,
@@ -93,22 +108,17 @@ class SalesService:
                     "Sale quantity must be greater than zero."
                 )
 
+            price_profile = ProductPrice.objects.filter(
+                product=product, currency=currency, is_active=True
+            ).first()
+            default_selling_price = price_profile.selling_price if price_profile else product.selling_price
+            default_cost_price = price_profile.cost_price if price_profile else product.cost_price
             unit_price = Decimal(
-                str(
-                    item_data.get(
-                        "unit_price",
-                        product.selling_price,
-                    )
-                )
+                str(item_data.get("unit_price", default_selling_price))
             )
 
             unit_cost = Decimal(
-                str(
-                    item_data.get(
-                        "unit_cost",
-                        product.cost_price,
-                    )
-                )
+                str(item_data.get("unit_cost", default_cost_price))
             )
 
             item_discount = Decimal(
@@ -243,6 +253,8 @@ class SalesService:
                     ),
                     transaction_date=sale.sale_date,
                     created_by=user,
+                    currency=sale.currency,
+                    exchange_rate=sale.exchange_rate,
                 )
 
             total_cost += item.line_cost
@@ -255,16 +267,19 @@ class SalesService:
         revenue_account = Account.objects.get(
             company=sale.company,
             code="4000",
+            currency=sale.currency,
         )
 
         cogs_account = Account.objects.get(
             company=sale.company,
             code="5000",
+            currency=sale.currency,
         )
 
         inventory_account = Account.objects.get(
             company=sale.company,
             code="1200",
+            currency=sale.currency,
         )
 
         if sale.payment_method == Sale.PaymentMethod.CREDIT:
@@ -272,6 +287,7 @@ class SalesService:
             receivable_account = Account.objects.get(
                 company=sale.company,
                 code="1100",
+                currency=sale.currency,
             )
 
             debit_account = receivable_account
@@ -283,6 +299,7 @@ class SalesService:
                 debit_account = Account.objects.get(
                     company=sale.company,
                     code="1010",
+                    currency=sale.currency,
                 )
 
             else:
@@ -290,6 +307,7 @@ class SalesService:
                 debit_account = Account.objects.get(
                     company=sale.company,
                     code="1000",
+                    currency=sale.currency,
                 )
 
         journal_lines = [
@@ -345,6 +363,8 @@ class SalesService:
             transaction_date=sale.sale_date,
             created_by=user,
             lines=journal_lines,
+            currency=sale.currency,
+            exchange_rate=sale.exchange_rate,
             post=True,
         )
 
@@ -440,6 +460,8 @@ class SalesService:
                     ),
                     transaction_date=sale_date,
                     created_by=user,
+                    currency=sale.currency,
+                    exchange_rate=sale.exchange_rate,
                 )
 
         # --------------------------------------------------------
@@ -460,6 +482,8 @@ class SalesService:
                 ),
                 "debit": line.credit,
                 "credit": line.debit,
+                "currency": line.currency,
+                "exchange_rate": line.exchange_rate,
             })
 
         AccountingService.create_journal_entry(
@@ -475,6 +499,8 @@ class SalesService:
             transaction_date=sale_date,
             created_by=user,
             lines=reversal_lines,
+            currency=sale.currency,
+            exchange_rate=sale.exchange_rate,
             post=True,
         )
 

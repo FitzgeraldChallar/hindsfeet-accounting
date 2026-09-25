@@ -41,7 +41,7 @@ function formatDate(date) {
 }
 
 export default function BalanceSheet() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const [report, setReport] = useState(null);
 
@@ -63,8 +63,9 @@ export default function BalanceSheet() {
     "Selected Company";
 
   const currency =
-    currentCompany?.currency ||
+    workspaceCurrency ||
     report?.currency ||
+    currentCompany?.currency ||
     "USD";
 
   /* ============================================================
@@ -86,6 +87,7 @@ export default function BalanceSheet() {
       const params = new URLSearchParams();
 
       params.set("company", companyId);
+      params.set("currency", currency);
 
       if (asOfDate) {
         params.set("as_of_date", asOfDate);
@@ -111,7 +113,7 @@ export default function BalanceSheet() {
 
   useEffect(() => {
     loadReport();
-  }, [companyId]);
+  }, [companyId, workspaceCurrency]);
 
   /* ============================================================
      REPORT DATA
@@ -404,6 +406,7 @@ export default function BalanceSheet() {
       const params = new URLSearchParams();
 
       params.set("company", companyId);
+      params.set("currency", currency);
 
       if (asOfDate) {
         params.set("as_of_date", asOfDate);
@@ -1067,9 +1070,7 @@ export default function BalanceSheet() {
                   }
                 >
                   {currency}{" "}
-                  {formatMoney(
-                    Math.abs(currentProfit)
-                  )}
+                  {formatMoney(currentProfit)}
                 </strong>
 
               </div>

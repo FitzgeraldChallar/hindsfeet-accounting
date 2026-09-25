@@ -1,4 +1,8 @@
+from decimal import Decimal, InvalidOperation
+
 from rest_framework import serializers
+
+from companies.currency_service import CompanyCurrencyService
 
 from .models import (
     Employee,
@@ -38,6 +42,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "date_employed",
             "date_terminated",
             "pay_frequency",
+            "currency",
             "basic_salary",
             "is_taxable",
             "notes",
@@ -54,6 +59,20 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        company = attrs.get("company", getattr(self.instance, "company", None))
+        currency = attrs.get("currency", getattr(self.instance, "currency", None))
+        if company and currency:
+            try:
+                CompanyCurrencyService.validate_enabled_currency(
+                    company=company,
+                    currency=currency,
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({"currency": str(exc)})
+        return attrs
+
 
 class PayrollPeriodSerializer(serializers.ModelSerializer):
     class Meta:
@@ -65,6 +84,7 @@ class PayrollPeriodSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "pay_date",
+            "currency",
 
             # Payroll configuration
             "exchange_rate",
@@ -89,6 +109,35 @@ class PayrollPeriodSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        company = attrs.get("company", getattr(self.instance, "company", None))
+        currency = attrs.get("currency", getattr(self.instance, "currency", None))
+        exchange_rate = attrs.get(
+            "exchange_rate",
+            getattr(self.instance, "exchange_rate", None),
+        )
+
+        if company and currency:
+            try:
+                currency = CompanyCurrencyService.validate_enabled_currency(
+                    company=company,
+                    currency=currency,
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({"currency": str(exc)})
+
+            if currency == "LRD" and exchange_rate is not None and str(exchange_rate) != "1.000000":
+                try:
+                    if Decimal(str(exchange_rate)) != Decimal("1.000000"):
+                        raise serializers.ValidationError({
+                            "exchange_rate": "LRD payroll must use an exchange rate of 1.000000 (1 LRD = 1 LRD)."
+                        })
+                except (ValueError, TypeError, InvalidOperation):
+                    raise serializers.ValidationError({"exchange_rate": "Enter a valid exchange rate."})
+
+        return attrs
 
 
 class PayrollTaxBandSerializer(serializers.ModelSerializer):
@@ -460,6 +509,7 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
             "employee",
             "employee_name",
             "employee_number",
+            "currency",
 
             # Salary
             "basic_salary",

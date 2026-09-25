@@ -149,6 +149,34 @@ class Product(models.Model):
         return f"{self.code} - {self.name}"
 
 
+class ProductPrice(models.Model):
+    """Currency-specific selling/cost price for a shared product master."""
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="prices"
+    )
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")]
+    )
+    selling_price = models.DecimalField(
+        max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    cost_price = models.DecimalField(
+        max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["currency"]
+        constraints = [
+            models.UniqueConstraint(fields=["product", "currency"], name="unique_product_price_currency")
+        ]
+
+    def __str__(self):
+        return f"{self.product.name} - {self.currency}"
+
+
 class Inventory(models.Model):
     """
     Stores the current inventory balance for a product.
@@ -245,6 +273,19 @@ class InventoryTransaction(models.Model):
         ],
     )
 
+
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")], default="USD"
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000")
+    )
+
+    functional_unit_cost = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
     reference = models.CharField(
         max_length=100,
         blank=True,
@@ -303,6 +344,14 @@ class Sale(models.Model):
         Company,
         on_delete=models.CASCADE,
         related_name="sales",
+    )
+
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")], default="USD"
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000")
     )
 
     sale_number = models.CharField(
@@ -523,7 +572,7 @@ class PumpAttendant(models.Model):
     def clean(self):
         from django.core.exceptions import ValidationError
 
-        if self.company.company_type != Company.CompanyType.GAS_STATION:
+        if self.company.company_type != Company.BusinessType.GAS_STATION:
             raise ValidationError(
                 "Pump attendants can only be created "
                 "for gas station companies."
@@ -580,7 +629,7 @@ class FuelPump(models.Model):
     def clean(self):
         from django.core.exceptions import ValidationError
 
-        if self.company.company_type != Company.CompanyType.GAS_STATION:
+        if self.company.company_type != Company.BusinessType.GAS_STATION:
             raise ValidationError(
                 "Fuel pumps can only be created "
                 "for gas station companies."
@@ -639,6 +688,14 @@ class PumpSale(models.Model):
     )
 
     sale_date = models.DateField()
+
+    currency = models.CharField(
+        max_length=3, choices=[("USD", "US Dollar (USD)"), ("LRD", "Liberian Dollar (LRD)")], default="USD"
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000")
+    )
 
     opening_meter = models.DecimalField(
         max_digits=18,
@@ -723,7 +780,7 @@ class PumpSale(models.Model):
     def clean(self):
         from django.core.exceptions import ValidationError
 
-        if self.company.company_type != Company.CompanyType.GAS_STATION:
+        if self.company.company_type != Company.BusinessType.GAS_STATION:
             raise ValidationError(
                 "Pump sales can only be created "
                 "for gas station companies."

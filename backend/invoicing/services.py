@@ -6,6 +6,8 @@ from accounting.models import Account
 from accounting.services import AccountingService
 from operations.models import Product, Sale
 from operations.services import InventoryService
+from companies.currency_service import CompanyCurrencyService
+from banking.models import BankAccount
 
 from .models import (
     Customer,
@@ -51,11 +53,12 @@ class InvoicingService:
     # ============================================================
 
     @staticmethod
-    def _account(*, company, code):
+    def _account(*, company, code, currency=None):
         try:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -84,6 +87,7 @@ class InvoicingService:
         company,
         currency,
         exchange_rate,
+        effective_date=None,
     ):
         """
         Validate invoice currency and determine the
@@ -110,6 +114,10 @@ class InvoicingService:
             company.currency or ""
         ).upper().strip()
 
+        CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency
+        )
+
         if company_currency not in allowed_currencies:
             raise ValueError(
                 "Company currency must be USD or LRD."
@@ -118,22 +126,13 @@ class InvoicingService:
         if currency == company_currency:
             return Decimal("1.000000")
 
-        if exchange_rate is None:
-            raise ValueError(
-                "An exchange rate is required when "
-                "invoice currency differs from company currency."
-            )
-
-        exchange_rate = InvoicingService._decimal(
-            exchange_rate
+        return CompanyCurrencyService.get_rate(
+            company=company,
+            from_currency=currency,
+            to_currency=company_currency,
+            effective_date=effective_date,
+            supplied_rate=exchange_rate,
         )
-
-        if exchange_rate <= 0:
-            raise ValueError(
-                "Exchange rate must be greater than zero."
-            )
-
-        return exchange_rate
 
     @staticmethod
     def _functional_amount(*, amount, exchange_rate):
@@ -231,6 +230,7 @@ class InvoicingService:
                 company=company,
                 currency=currency,
                 exchange_rate=exchange_rate,
+                effective_date=invoice_date,
             )
         )
 
@@ -444,7 +444,9 @@ class InvoicingService:
             )
 
         if currency is None:
-            currency = sale.company.currency
+            currency = sale.currency
+        if exchange_rate is None:
+            exchange_rate = sale.exchange_rate
 
         items = []
 
@@ -518,25 +520,53 @@ class InvoicingService:
         ar_account = InvoicingService._account(
             company=invoice.company,
             code="1100",
+            currency=invoice.currency,
         )
 
         revenue_account = InvoicingService._account(
             company=invoice.company,
             code="4000",
+            currency=invoice.currency,
         )
 
-        functional_total = (
-            InvoicingService._functional_amount(
-                amount=invoice.total_amount,
-                exchange_rate=invoice.exchange_rate,
-            )
-        )
+        functional_total = invoice.total_amount
 
         if functional_total <= 0:
             raise ValueError(
                 "Invoice functional-currency value must "
                 "be greater than zero."
             )
+
+        # AccountingService converts the invoice-currency amounts using
+        # the invoice's historical exchange rate and stores the resulting
+        # functional-currency values on the journal lines.
+        #
+        # Keep this journal strictly to the invoice itself; payment/FX
+        # settlement logic belongs to record_customer_payment().
+        journal_lines = [
+            {
+                "account": ar_account,
+                "description": (
+                    f"Accounts Receivable - "
+                    f"{invoice.customer.name}"
+                ),
+                "debit": invoice.total_amount,
+                "credit": Decimal("0.00"),
+                "currency": invoice.currency,
+                "exchange_rate": invoice.exchange_rate,
+            },
+            {
+                "account": revenue_account,
+                "description": (
+                    f"Revenue from invoice "
+                    f"{invoice.invoice_number}"
+                ),
+                "debit": Decimal("0.00"),
+                "credit": invoice.total_amount,
+                "currency": invoice.currency,
+                "exchange_rate": invoice.exchange_rate,
+            },
+        ]
 
         journal_entry = AccountingService.create_journal_entry(
             company=invoice.company,
@@ -554,8 +584,10 @@ class InvoicingService:
                         f"Accounts Receivable - "
                         f"{invoice.customer.name}"
                     ),
-                    "debit": functional_total,
+                    "debit": invoice.total_amount,
                     "credit": Decimal("0.00"),
+                    "currency": invoice.currency,
+                    "exchange_rate": invoice.exchange_rate,
                 },
                 {
                     "account": revenue_account,
@@ -564,9 +596,13 @@ class InvoicingService:
                         f"{invoice.invoice_number}"
                     ),
                     "debit": Decimal("0.00"),
-                    "credit": functional_total,
+                    "credit": invoice.total_amount,
+                    "currency": invoice.currency,
+                    "exchange_rate": invoice.exchange_rate,
                 },
             ],
+            currency=invoice.currency,
+            exchange_rate=invoice.exchange_rate,
             post=True,
         )
 
@@ -614,6 +650,11 @@ class InvoicingService:
                 "The linked sale must be completed."
             )
 
+        if invoice.currency != sale.currency:
+            raise ValueError(
+                "An invoice created from a sale must use the sale currency."
+            )
+
         invoice.status = Invoice.Status.ISSUED
 
         invoice.save(
@@ -640,6 +681,9 @@ class InvoicingService:
         created_by,
         reference="",
         notes="",
+        payment_currency=None,
+        exchange_rate=None,
+        bank_account=None,
     ):
         """
         Record a payment against a customer invoice.
@@ -673,23 +717,33 @@ class InvoicingService:
                 "Payment amount must be greater than zero."
             )
 
-        if amount > invoice.balance_due:
-            raise ValueError(
-                "Payment cannot exceed the invoice balance."
-            )
-
-        functional_amount = (
-            InvoicingService._functional_amount(
-                amount=amount,
-                exchange_rate=invoice.exchange_rate,
-            )
+        payment_currency = CompanyCurrencyService.validate_enabled_currency(
+            company=invoice.company,
+            currency=payment_currency or (bank_account.currency if bank_account else invoice.currency),
         )
-
-        if functional_amount <= 0:
-            raise ValueError(
-                "Payment functional-currency value must "
-                "be greater than zero."
-            )
+        if bank_account is not None:
+            if bank_account.company_id != invoice.company_id:
+                raise ValueError("Bank account does not belong to the invoice company.")
+            if not bank_account.is_active:
+                raise ValueError("The selected bank account is inactive.")
+            if bank_account.currency != payment_currency:
+                raise ValueError("Payment currency must match the selected bank account currency.")
+        payment_rate = CompanyCurrencyService.get_rate(
+            company=invoice.company, from_currency=payment_currency,
+            to_currency=invoice.company.currency, effective_date=payment_date,
+            supplied_rate=exchange_rate,
+        )
+        invoice_rate = CompanyCurrencyService.get_rate(
+            company=invoice.company, from_currency=invoice.currency,
+            to_currency=invoice.company.currency, effective_date=payment_date,
+            supplied_rate=invoice.exchange_rate,
+        )
+        functional_amount = CompanyCurrencyService.money(amount * payment_rate)
+        invoice_amount = CompanyCurrencyService.money(functional_amount / invoice_rate)
+        if invoice_amount <= 0:
+            raise ValueError("Payment must produce a positive invoice-currency amount.")
+        if invoice_amount > invoice.balance_due:
+            raise ValueError("Payment cannot exceed the invoice balance.")
 
         if payment_method == (
             CustomerPayment.PaymentMethod.CASH
@@ -697,15 +751,20 @@ class InvoicingService:
             cash_account = InvoicingService._account(
                 company=invoice.company,
                 code="1000",
+                currency=payment_currency,
             )
 
         elif payment_method == (
             CustomerPayment.PaymentMethod.BANK
         ):
-            cash_account = InvoicingService._account(
-                company=invoice.company,
-                code="1010",
-            )
+            if bank_account is not None:
+                cash_account = bank_account.accounting_account
+            else:
+                cash_account = InvoicingService._account(
+                    company=invoice.company,
+                    code="1010",
+                    currency=payment_currency,
+                )
 
         else:
             # Mobile money and card are currently routed
@@ -714,22 +773,59 @@ class InvoicingService:
             cash_account = InvoicingService._account(
                 company=invoice.company,
                 code="1010",
+                currency=payment_currency,
             )
 
         ar_account = InvoicingService._account(
             company=invoice.company,
             code="1100",
+            currency=invoice.currency,
         )
 
         payment = CustomerPayment.objects.create(
             invoice=invoice,
             amount=amount,
+            currency=payment_currency,
+            exchange_rate=payment_rate,
+            amount_in_invoice_currency=invoice_amount,
+            functional_amount=functional_amount,
+            bank_account=bank_account,
             payment_date=payment_date,
             payment_method=payment_method,
             reference=reference,
             notes=notes,
             created_by=created_by,
         )
+
+        journal_lines = [
+            {
+                "account": cash_account,
+                "description": f"Payment received from {invoice.customer.name}",
+                "debit": amount, "credit": Decimal("0.00"),
+                "currency": payment_currency, "exchange_rate": payment_rate,
+            },
+            {
+                "account": ar_account,
+                "description": f"Payment against invoice {invoice.invoice_number}",
+                "debit": Decimal("0.00"), "credit": invoice_amount,
+                "currency": invoice.currency, "exchange_rate": invoice_rate,
+            },
+        ]
+        fx_difference = functional_amount - CompanyCurrencyService.money(invoice_amount * invoice_rate)
+        if fx_difference > Decimal("0.00"):
+            journal_lines.append({
+                "account": InvoicingService._account(company=invoice.company, code="4200", currency=invoice.company.currency),
+                "description": "Foreign exchange gain on customer settlement",
+                "debit": Decimal("0.00"), "credit": fx_difference,
+                "currency": invoice.company.currency, "exchange_rate": Decimal("1.000000"),
+            })
+        elif fx_difference < Decimal("0.00"):
+            journal_lines.append({
+                "account": InvoicingService._account(company=invoice.company, code="6700", currency=invoice.company.currency),
+                "description": "Foreign exchange loss on customer settlement",
+                "debit": abs(fx_difference), "credit": Decimal("0.00"),
+                "currency": invoice.company.currency, "exchange_rate": Decimal("1.000000"),
+            })
 
         journal_entry = AccountingService.create_journal_entry(
             company=invoice.company,
@@ -743,26 +839,9 @@ class InvoicingService:
             ),
             transaction_date=payment_date,
             created_by=created_by,
-            lines=[
-                {
-                    "account": cash_account,
-                    "description": (
-                        f"Payment received from "
-                        f"{invoice.customer.name}"
-                    ),
-                    "debit": functional_amount,
-                    "credit": Decimal("0.00"),
-                },
-                {
-                    "account": ar_account,
-                    "description": (
-                        f"Payment against invoice "
-                        f"{invoice.invoice_number}"
-                    ),
-                    "debit": Decimal("0.00"),
-                    "credit": functional_amount,
-                },
-            ],
+            lines=journal_lines,
+            currency=payment_currency,
+            exchange_rate=payment_rate,
             post=True,
         )
 
@@ -776,7 +855,7 @@ class InvoicingService:
 
         # IMPORTANT:
         # Invoice balances remain in the invoice currency.
-        invoice.amount_paid += amount
+        invoice.amount_paid += invoice_amount
 
         invoice.balance_due = (
             invoice.total_amount
@@ -819,6 +898,8 @@ class InvoicingService:
         notes="",
         terms="",
         post=False,
+        currency=None,
+        exchange_rate=None,
     ):
         """
         Create a supplier bill.
@@ -860,8 +941,18 @@ class InvoicingService:
                 "Bill tax cannot be negative."
             )
 
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency or company.currency
+        )
+        exchange_rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=currency, to_currency=company.currency,
+            effective_date=bill_date, supplied_rate=exchange_rate,
+        )
+
         bill = SupplierBill.objects.create(
             company=company,
+            currency=currency,
+            exchange_rate=exchange_rate,
             supplier=supplier,
             bill_number=bill_number,
             bill_date=bill_date,
@@ -1042,16 +1133,19 @@ class InvoicingService:
         ap_account = InvoicingService._account(
             company=bill.company,
             code="2000",
+            currency=bill.currency,
         )
 
         inventory_account = InvoicingService._account(
             company=bill.company,
             code="1200",
+            currency=bill.currency,
         )
 
         expense_account = InvoicingService._account(
             company=bill.company,
             code="6400",
+            currency=bill.currency,
         )
 
         lines = []
@@ -1088,6 +1182,8 @@ class InvoicingService:
                     ),
                     transaction_date=bill.bill_date,
                     created_by=user,
+                    currency=bill.currency,
+                    exchange_rate=bill.exchange_rate,
                 )
 
             else:
@@ -1098,7 +1194,76 @@ class InvoicingService:
                 "description": item.description,
                 "debit": item.line_total,
                 "credit": Decimal("0.00"),
+                "currency": bill.currency,
+                "exchange_rate": bill.exchange_rate,
             })
+
+        # ------------------------------------------------------------
+        # BILL-LEVEL ADJUSTMENT
+        # ------------------------------------------------------------
+        #
+        # SupplierBill.total_amount is:
+        #
+        #   sum(item.line_total) - bill.discount + bill.tax
+        #
+        # Therefore bill-level discount/tax can make the final payable
+        # amount differ from the sum of the item lines. The accounting
+        # journal must represent that difference explicitly instead of
+        # producing an unbalanced entry.
+        #
+        # For a positive adjustment (normally bill-level tax), debit the
+        # same purchase/expense account used for the bill.
+        #
+        # For a negative adjustment (normally bill-level discount), credit
+        # that account.
+        #
+        # This keeps the existing inventory/expense and AP flow intact
+        # while making the journal exactly equal to bill.total_amount.
+        item_total = sum(
+            (item.line_total for item in bill.items.all()),
+            Decimal("0.00"),
+        )
+        bill_adjustment = (
+            bill.total_amount - item_total
+        ).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+        if bill_adjustment != Decimal("0.00"):
+            adjustment_account = (
+                inventory_account
+                if all(
+                    item.product_id is not None
+                    for item in bill.items.all()
+                )
+                else expense_account
+            )
+
+            if bill_adjustment > Decimal("0.00"):
+                lines.append({
+                    "account": adjustment_account,
+                    "description": (
+                        f"Bill-level adjustment - "
+                        f"{bill.bill_number}"
+                    ),
+                    "debit": bill_adjustment,
+                    "credit": Decimal("0.00"),
+                    "currency": bill.currency,
+                    "exchange_rate": bill.exchange_rate,
+                })
+            else:
+                lines.append({
+                    "account": adjustment_account,
+                    "description": (
+                        f"Bill-level adjustment - "
+                        f"{bill.bill_number}"
+                    ),
+                    "debit": Decimal("0.00"),
+                    "credit": abs(bill_adjustment),
+                    "currency": bill.currency,
+                    "exchange_rate": bill.exchange_rate,
+                })
 
         lines.append({
             "account": ap_account,
@@ -1108,6 +1273,8 @@ class InvoicingService:
             ),
             "debit": Decimal("0.00"),
             "credit": bill.total_amount,
+            "currency": bill.currency,
+            "exchange_rate": bill.exchange_rate,
         })
 
         AccountingService.create_journal_entry(
@@ -1120,6 +1287,8 @@ class InvoicingService:
             transaction_date=bill.bill_date,
             created_by=user,
             lines=lines,
+            currency=bill.currency,
+            exchange_rate=bill.exchange_rate,
             post=True,
         )
 
@@ -1149,6 +1318,9 @@ class InvoicingService:
         created_by,
         reference="",
         notes="",
+        payment_currency=None,
+        exchange_rate=None,
+        bank_account=None,
     ):
         """
         Record payment to a supplier.
@@ -1180,10 +1352,27 @@ class InvoicingService:
                 "Payment amount must be greater than zero."
             )
 
-        if amount > bill.balance_due:
-            raise ValueError(
-                "Payment cannot exceed the bill balance."
-            )
+        payment_currency = CompanyCurrencyService.validate_enabled_currency(
+            company=bill.company,
+            currency=payment_currency or (bank_account.currency if bank_account else bill.currency),
+        )
+        if bank_account is not None:
+            if bank_account.company_id != bill.company_id:
+                raise ValueError("Bank account does not belong to the bill company.")
+            if bank_account.currency != payment_currency:
+                raise ValueError("Payment currency must match the selected bank account currency.")
+        payment_rate = CompanyCurrencyService.get_rate(
+            company=bill.company, from_currency=payment_currency, to_currency=bill.company.currency,
+            effective_date=payment_date, supplied_rate=exchange_rate,
+        )
+        bill_rate = CompanyCurrencyService.get_rate(
+            company=bill.company, from_currency=bill.currency, to_currency=bill.company.currency,
+            effective_date=payment_date, supplied_rate=bill.exchange_rate,
+        )
+        functional_amount = CompanyCurrencyService.money(amount * payment_rate)
+        bill_amount = CompanyCurrencyService.money(functional_amount / bill_rate)
+        if bill_amount > bill.balance_due:
+            raise ValueError("Payment cannot exceed the bill balance.")
 
         if payment_method == (
             SupplierPayment.PaymentMethod.CASH
@@ -1191,27 +1380,72 @@ class InvoicingService:
             cash_account = InvoicingService._account(
                 company=bill.company,
                 code="1000",
+                currency=payment_currency,
             )
         else:
-            cash_account = InvoicingService._account(
-                company=bill.company,
-                code="1010",
-            )
+            if bank_account is not None:
+                cash_account = bank_account.accounting_account
+            else:
+                cash_account = InvoicingService._account(
+                    company=bill.company,
+                    code="1010",
+                    currency=payment_currency,
+                )
 
         ap_account = InvoicingService._account(
             company=bill.company,
             code="2000",
+            currency=bill.currency,
         )
 
         payment = SupplierPayment.objects.create(
             bill=bill,
             amount=amount,
+            currency=payment_currency,
+            exchange_rate=payment_rate,
+            amount_in_bill_currency=bill_amount,
+            functional_amount=functional_amount,
+            bank_account=bank_account,
             payment_date=payment_date,
             payment_method=payment_method,
             reference=reference,
             notes=notes,
             created_by=created_by,
         )
+
+        journal_lines = [
+            {
+                "account": ap_account,
+                "description": f"Payment to supplier {bill.supplier.name}",
+                "debit": bill_amount,
+                "credit": Decimal("0.00"),
+                "currency": bill.currency,
+                "exchange_rate": bill_rate,
+            },
+            {
+                "account": cash_account,
+                "description": f"Supplier payment for bill {bill.bill_number}",
+                "debit": Decimal("0.00"),
+                "credit": amount,
+                "currency": payment_currency,
+                "exchange_rate": payment_rate,
+            },
+        ]
+        fx_difference = functional_amount - CompanyCurrencyService.money(bill_amount * bill_rate)
+        if fx_difference > Decimal("0.00"):
+            journal_lines.append({
+                "account": InvoicingService._account(company=bill.company, code="6700", currency=bill.company.currency),
+                "description": "Foreign exchange loss on supplier settlement",
+                "debit": fx_difference, "credit": Decimal("0.00"),
+                "currency": bill.company.currency, "exchange_rate": Decimal("1.000000"),
+            })
+        elif fx_difference < Decimal("0.00"):
+            journal_lines.append({
+                "account": InvoicingService._account(company=bill.company, code="4200", currency=bill.company.currency),
+                "description": "Foreign exchange gain on supplier settlement",
+                "debit": Decimal("0.00"), "credit": abs(fx_difference),
+                "currency": bill.company.currency, "exchange_rate": Decimal("1.000000"),
+            })
 
         journal_entry = AccountingService.create_journal_entry(
             company=bill.company,
@@ -1225,26 +1459,9 @@ class InvoicingService:
             ),
             transaction_date=payment_date,
             created_by=created_by,
-            lines=[
-                {
-                    "account": ap_account,
-                    "description": (
-                        f"Payment to supplier "
-                        f"{bill.supplier.name}"
-                    ),
-                    "debit": amount,
-                    "credit": Decimal("0.00"),
-                },
-                {
-                    "account": cash_account,
-                    "description": (
-                        f"Supplier payment for "
-                        f"bill {bill.bill_number}"
-                    ),
-                    "debit": Decimal("0.00"),
-                    "credit": amount,
-                },
-            ],
+            lines=journal_lines,
+            currency=payment_currency,
+            exchange_rate=payment_rate,
             post=True,
         )
 
@@ -1256,7 +1473,7 @@ class InvoicingService:
             ]
         )
 
-        bill.amount_paid += amount
+        bill.amount_paid += bill_amount
 
         bill.balance_due = (
             bill.total_amount

@@ -72,6 +72,9 @@ class BankAccountSerializer(serializers.ModelSerializer):
                 )
             })
 
+        if self.instance and currency and currency != self.instance.currency:
+            raise serializers.ValidationError({"currency": "A bank account currency cannot be changed after the account is created."})
+
         if currency and currency not in [
             "USD",
             "LRD",
@@ -127,6 +130,9 @@ class BankTransactionSerializer(serializers.ModelSerializer):
             "transaction_type",
             "transaction_type_display",
             "amount",
+            "currency",
+            "exchange_rate",
+            "functional_amount",
             "transaction_date",
             "reference",
             "description",
@@ -141,6 +147,9 @@ class BankTransactionSerializer(serializers.ModelSerializer):
             "bank_account_name",
             "account_number",
             "transaction_type_display",
+            "currency",
+            "exchange_rate",
+            "functional_amount",
             "journal_entry",
             "created_by",
             "created_at",
@@ -161,6 +170,9 @@ class BankTransactionSerializer(serializers.ModelSerializer):
                         "to the selected company."
                     )
                 })
+
+        if company and bank_account and bank_account.currency != attrs.get("currency", bank_account.currency):
+            raise serializers.ValidationError({"currency": "Transaction currency must match the bank account currency."})
 
         amount = attrs.get("amount")
 

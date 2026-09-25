@@ -41,6 +41,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -135,12 +140,13 @@ function EmptyState() {
 
 
 export default function APSupplierBalances() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
   const navigate = useNavigate();
 
   const companyId = currentCompany?.id;
-  const companyCurrency =
-    currentCompany?.currency || "USD";
+  const companyCurrency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [suppliers, setSuppliers] = useState([]);
   const [bills, setBills] = useState([]);
@@ -226,9 +232,12 @@ export default function APSupplierBalances() {
     return bills.filter(
       (bill) =>
         bill.status !== "DRAFT" &&
-        bill.status !== "VOIDED"
+        bill.status !== "VOIDED" &&
+        currencyCode(
+          bill?.currency || currentCompany?.currency
+        ) === companyCurrency
     );
-  }, [bills]);
+  }, [bills, companyCurrency, currentCompany?.currency]);
 
 
   const supplierBalances = useMemo(() => {

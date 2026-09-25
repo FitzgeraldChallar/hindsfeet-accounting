@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from accounting.models import Account
 from accounting.services import AccountingService
 
@@ -27,11 +29,12 @@ class PayrollPaymentService:
     BANK_CODE = "1010"
 
     @staticmethod
-    def _get_account(*, company, code):
+    def _get_account(*, company, code, currency=None):
         try:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -100,6 +103,7 @@ class PayrollPaymentService:
         payroll_liability_account = (
             PayrollPaymentService._get_account(
                 company=payroll_period.company,
+                currency=payroll_period.currency,
                 code=PayrollPaymentService.PAYROLL_LIABILITY_CODE,
             )
         )
@@ -108,6 +112,7 @@ class PayrollPaymentService:
             payment_account = (
                 PayrollPaymentService._get_account(
                     company=payroll_period.company,
+                    currency=payroll_period.currency,
                     code=PayrollPaymentService.CASH_CODE,
                 )
             )
@@ -116,6 +121,7 @@ class PayrollPaymentService:
             payment_account = (
                 PayrollPaymentService._get_account(
                     company=payroll_period.company,
+                    currency=payroll_period.currency,
                     code=PayrollPaymentService.BANK_CODE,
                 )
             )
@@ -140,6 +146,14 @@ class PayrollPaymentService:
                 "This payroll has already been paid."
             )
 
+        accounting_rate = CompanyCurrencyService.get_rate(
+            company=payroll_period.company,
+            from_currency=payroll_period.currency,
+            to_currency=payroll_period.company.currency,
+            effective_date=payroll_period.pay_date,
+            supplied_rate=None,
+        )
+
         journal_lines = [
             {
                 "account": payroll_liability_account,
@@ -149,6 +163,8 @@ class PayrollPaymentService:
                 ),
                 "debit": total_net_pay,
                 "credit": Decimal("0.00"),
+                "currency": payroll_period.currency,
+                "exchange_rate": accounting_rate,
             },
             {
                 "account": payment_account,
@@ -158,6 +174,8 @@ class PayrollPaymentService:
                 ),
                 "debit": Decimal("0.00"),
                 "credit": total_net_pay,
+                "currency": payroll_period.currency,
+                "exchange_rate": accounting_rate,
             },
         ]
 

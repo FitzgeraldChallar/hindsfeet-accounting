@@ -115,15 +115,16 @@ class BankAccountListCreateView(
             "company"
         )
 
+        currency = self.request.query_params.get("currency")
+
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -132,9 +133,9 @@ class BankAccountListCreateView(
         )
 
         if company_id:
-            queryset = queryset.filter(
-                company_id=company_id
-            )
+            queryset = queryset.filter(company_id=company_id)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -162,6 +163,7 @@ class BankAccountListCreateView(
         accounting_account = (
             BankingService.create_accounting_account(
                 company=company,
+                currency=serializer.validated_data.get("currency") or company.currency,
                 bank_name=bank_name,
                 account_name=account_name,
             )
@@ -273,6 +275,8 @@ class BankTransactionListView(
             "company"
         )
 
+        currency = self.request.query_params.get("currency")
+
         bank_account_id = (
             self.request.query_params.get(
                 "bank_account"
@@ -311,9 +315,10 @@ class BankTransactionListView(
             )
 
         if transaction_type:
-            queryset = queryset.filter(
-                transaction_type=transaction_type
-            )
+            queryset = queryset.filter(transaction_type=transaction_type)
+
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -391,6 +396,7 @@ class BankDepositCreateView(APIView):
             counter_account = Account.objects.get(
                 pk=counter_account_id,
                 company=company,
+                currency=bank_account.currency,
             )
 
         except Account.DoesNotExist:
@@ -512,6 +518,7 @@ class BankWithdrawalCreateView(APIView):
             counter_account = Account.objects.get(
                 pk=counter_account_id,
                 company=company,
+                currency=bank_account.currency,
             )
 
         except Account.DoesNotExist:
@@ -633,6 +640,7 @@ class BankFeeCreateView(APIView):
             expense_account = Account.objects.get(
                 pk=expense_account_id,
                 company=company,
+                currency=bank_account.currency,
             )
 
         except Account.DoesNotExist:
@@ -768,6 +776,7 @@ class BankInterestCreateView(APIView):
             revenue_account = Account.objects.get(
                 pk=revenue_account_id,
                 company=company,
+                currency=bank_account.currency,
             )
 
         except Account.DoesNotExist:
@@ -935,6 +944,7 @@ class BankAdjustmentCreateView(APIView):
             counter_account = Account.objects.get(
                 pk=counter_account_id,
                 company=company,
+                currency=bank_account.currency,
             )
 
         except Account.DoesNotExist:

@@ -201,7 +201,7 @@ class PayrollPayslipView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        currency = getattr(company, "currency", None) or "USD"
+        currency = getattr(record, "currency", None) or getattr(company, "currency", None) or "USD"
         symbol = self._currency_symbol(currency)
 
         page_width, page_height = A4

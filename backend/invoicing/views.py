@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from companies.models import Company, CompanyMembership
 from operations.models import Product, Sale
+from banking.models import BankAccount
 
 from .models import (
     Customer,
@@ -283,6 +284,8 @@ class InvoiceListView(
             "status"
         )
 
+        currency = self.request.query_params.get("currency")
+
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
@@ -303,9 +306,9 @@ class InvoiceListView(
                 )
 
         if status:
-            queryset = queryset.filter(
-                status=status
-            )
+            queryset = queryset.filter(status=status)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -475,6 +478,8 @@ class CreateInvoiceView(APIView):
                     "issue",
                     False,
                 ),
+                currency=request.data.get("currency"),
+                exchange_rate=request.data.get("exchange_rate"),
             )
 
         except KeyError as exc:
@@ -735,6 +740,13 @@ class CreateCustomerPaymentView(APIView):
                         "notes",
                         "",
                     ),
+                    payment_currency=request.data.get("currency"),
+                    exchange_rate=request.data.get("exchange_rate"),
+                    bank_account=(
+                        BankAccount.objects.get(
+                            id=request.data["bank_account"], company=invoice.company
+                        ) if request.data.get("bank_account") else None
+                    ),
                 )
             )
 
@@ -797,6 +809,8 @@ class SupplierBillListView(
             "status"
         )
 
+        currency = self.request.query_params.get("currency")
+
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
@@ -817,9 +831,9 @@ class SupplierBillListView(
                 )
 
         if status:
-            queryset = queryset.filter(
-                status=status
-            )
+            queryset = queryset.filter(status=status)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -943,6 +957,8 @@ class CreateSupplierBillView(APIView):
                     "terms",
                     "",
                 ),
+                currency=request.data.get("currency"),
+                exchange_rate=request.data.get("exchange_rate"),
                 post=request.data.get(
                     "post",
                     False,

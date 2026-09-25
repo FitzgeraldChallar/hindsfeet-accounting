@@ -31,6 +31,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -169,12 +174,13 @@ function exportCsv(filename, headers, rows) {
 
 
 export default function APPayableTransactions() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
   const navigate = useNavigate();
 
   const companyId = currentCompany?.id;
-  const currency =
-    currentCompany?.currency || "USD";
+  const currency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -276,7 +282,10 @@ export default function APPayableTransactions() {
       .filter(
         (bill) =>
           bill.status !== "DRAFT" &&
-          bill.status !== "VOIDED"
+          bill.status !== "VOIDED" &&
+          currencyCode(
+            bill?.currency || currentCompany?.currency
+          ) === currency
       )
       .forEach((bill) => {
         rows.push({
@@ -308,6 +317,15 @@ export default function APPayableTransactions() {
           String(payment.bill)
       );
 
+      if (
+        !bill ||
+        currencyCode(
+          bill?.currency || currentCompany?.currency
+        ) !== currency
+      ) {
+        return;
+      }
+
       rows.push({
         id: `payment-${payment.id}`,
         type: "PAYMENT",
@@ -323,7 +341,11 @@ export default function APPayableTransactions() {
             payment.payment_method
           )} supplier payment`,
         amount: -Math.abs(
-          Number(payment.amount || 0)
+          Number(
+            (payment.amount_in_bill_currency ??
+              payment.amount ??
+              0)
+          )
         ),
         balanceDue: null,
         status: "PAID",
@@ -343,7 +365,7 @@ export default function APPayableTransactions() {
 
       return bDate - aDate;
     });
-  }, [bills, payments]);
+  }, [bills, payments, currency, currentCompany?.currency]);
 
 
   const filteredTransactions = useMemo(() => {
@@ -467,7 +489,10 @@ export default function APPayableTransactions() {
         .filter(
           (bill) =>
             bill.status !== "DRAFT" &&
-            bill.status !== "VOIDED"
+            bill.status !== "VOIDED" &&
+            currencyCode(
+              bill?.currency || currentCompany?.currency
+            ) === currency
         )
         .reduce(
           (sum, bill) =>
@@ -477,7 +502,7 @@ export default function APPayableTransactions() {
             ),
           0
         ),
-    [bills]
+    [bills, currency, currentCompany?.currency]
   );
 
 

@@ -278,6 +278,7 @@ const WORKFLOW = [
 export default function PayrollProcessing() {
   const {
     currentCompany,
+    workspaceCurrency,
   } = useCompany();
 
   const companyId =
@@ -288,6 +289,7 @@ export default function PayrollProcessing() {
     "No company selected";
 
   const currency =
+    workspaceCurrency ||
     currentCompany?.currency ||
     "USD";
 
@@ -387,7 +389,7 @@ export default function PayrollProcessing() {
 
           const response =
             await api.get(
-              `/api/payroll/periods/?company=${companyId}`
+              `/api/payroll/periods/?company=${companyId}&currency=${currency}`
             );
 
           const list =
@@ -437,7 +439,7 @@ export default function PayrollProcessing() {
           setRefreshing(false);
         }
       },
-      [companyId]
+      [companyId, currency]
     );
 
 
@@ -463,7 +465,7 @@ export default function PayrollProcessing() {
 
           const response =
             await api.get(
-              `/api/payroll/records/?company=${companyId}`
+              `/api/payroll/records/?company=${companyId}&currency=${currency}`
             );
 
           const allRecords =
@@ -2330,7 +2332,7 @@ export default function PayrollProcessing() {
                           </th>
 
                           <th>
-                            PAYE (LRA)
+                            Withholding Tax
                           </th>
 
                           <th>

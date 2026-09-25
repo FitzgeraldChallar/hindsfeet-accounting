@@ -40,6 +40,9 @@ const formatMoney = (value) =>
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 
+const currencyCode = (value) =>
+  String(value || "").trim().toUpperCase();
+
 const formatDate = (value) => {
   if (!value) {
     return "—";
@@ -91,7 +94,10 @@ function extractList(data) {
 }
 
 export default function JournalEntries() {
-  const { currentCompany } = useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+  } = useCompany();
 
   const companyId = currentCompany?.id;
 
@@ -99,9 +105,11 @@ export default function JournalEntries() {
     currentCompany?.name ||
     "Current Company";
 
-  const companyCurrency =
-    currentCompany?.currency ||
-    "USD";
+  const companyCurrency = currencyCode(
+    workspaceCurrency ||
+      currentCompany?.currency ||
+      "USD"
+  );
 
   const [accounts, setAccounts] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -168,10 +176,10 @@ export default function JournalEntries() {
         entriesResponse,
       ] = await Promise.all([
         api.get(
-          `/api/accounting/accounts/?company=${companyId}`
+          `/api/accounting/accounts/?company=${companyId}&currency=${companyCurrency}`
         ),
         api.get(
-          `/api/accounting/journal-entries/?company=${companyId}`
+          `/api/accounting/journal-entries/?company=${companyId}&currency=${companyCurrency}`
         ),
       ]);
 
@@ -195,7 +203,7 @@ export default function JournalEntries() {
 
   useEffect(() => {
     loadData();
-  }, [companyId]);
+  }, [companyId, companyCurrency]);
 
   /* ============================================================
      ACCOUNT LOOKUP
@@ -583,6 +591,7 @@ export default function JournalEntries() {
 
       const payload = {
         company: companyId,
+        currency: companyCurrency,
         reference:
           form.reference.trim(),
         description:
@@ -1187,6 +1196,10 @@ export default function JournalEntries() {
                   </th>
 
                   <th>
+                    Currency
+                  </th>
+
+                  <th>
                     Date
                   </th>
 
@@ -1251,6 +1264,15 @@ export default function JournalEntries() {
                       </td>
 
                       <td>
+                        <span className="journal-currency-badge">
+                          {currencyCode(
+                            entry.currency ||
+                              companyCurrency
+                          )}
+                        </span>
+                      </td>
+
+                      <td>
                         <span className="journal-date">
                           {formatDate(
                             entry.transaction_date
@@ -1269,7 +1291,10 @@ export default function JournalEntries() {
 
                       <td>
                         <span className="journal-amount">
-                          {companyCurrency}{" "}
+                          {currencyCode(
+                            entry.currency ||
+                              companyCurrency
+                          )}{" "}
                           {formatMoney(
                             entry.total_debit
                           )}
@@ -1278,7 +1303,10 @@ export default function JournalEntries() {
 
                       <td>
                         <span className="journal-amount">
-                          {companyCurrency}{" "}
+                          {currencyCode(
+                            entry.currency ||
+                              companyCurrency
+                          )}{" "}
                           {formatMoney(
                             entry.total_credit
                           )}
@@ -2402,3 +2430,4 @@ export default function JournalEntries() {
     </div>
   );
 }
+

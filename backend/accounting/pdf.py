@@ -622,6 +622,7 @@ def general_ledger_pdf(
     start_date=None,
     end_date=None,
     account=None,
+    currency=None,
 ):
     """
     Generate General Ledger PDF.
@@ -630,6 +631,8 @@ def general_ledger_pdf(
     styles = get_pdf_styles()
 
     ledger = AccountingService.general_ledger(
+        currency=currency,
+
         company=company,
         start_date=start_date,
         end_date=end_date,
@@ -668,7 +671,7 @@ def general_ledger_pdf(
         report_header(
             company=company,
             title="GENERAL LEDGER",
-            currency=company.currency,
+            currency=currency or company.currency,
             styles=styles,
             period_text=period_text,
         )
@@ -881,6 +884,7 @@ def trial_balance_pdf(
     company,
     start_date=None,
     end_date=None,
+    currency=None,
 ):
     """
     Generate Trial Balance PDF.
@@ -889,6 +893,8 @@ def trial_balance_pdf(
     styles = get_pdf_styles()
 
     report = AccountingService.trial_balance(
+        currency=currency,
+
         company=company,
         start_date=start_date,
         end_date=end_date,
@@ -922,7 +928,7 @@ def trial_balance_pdf(
         report_header(
             company=company,
             title="TRIAL BALANCE",
-            currency=company.currency,
+            currency=currency or company.currency,
             styles=styles,
             period_text=period_text,
         )
@@ -1054,6 +1060,7 @@ def income_statement_pdf(
     company,
     start_date=None,
     end_date=None,
+    currency=None,
 ):
     """
     Generate Income Statement / Profit & Loss PDF.
@@ -1062,6 +1069,8 @@ def income_statement_pdf(
     styles = get_pdf_styles()
 
     report = AccountingService.income_statement(
+        currency=currency,
+
         company=company,
         start_date=start_date,
         end_date=end_date,
@@ -1095,7 +1104,7 @@ def income_statement_pdf(
         report_header(
             company=company,
             title="INCOME STATEMENT",
-            currency=company.currency,
+            currency=currency or company.currency,
             styles=styles,
             period_text=period_text,
         )
@@ -1495,6 +1504,7 @@ def balance_sheet_pdf(
     *,
     company,
     as_of_date=None,
+    currency=None,
 ):
     """
     Generate Balance Sheet PDF.
@@ -1503,6 +1513,8 @@ def balance_sheet_pdf(
     styles = get_pdf_styles()
 
     report = AccountingService.balance_sheet(
+        currency=currency,
+
         company=company,
         as_of_date=as_of_date,
     )
@@ -1530,7 +1542,7 @@ def balance_sheet_pdf(
         report_header(
             company=company,
             title="BALANCE SHEET",
-            currency=company.currency,
+            currency=currency or company.currency,
             styles=styles,
             period_text=period_text,
         )
@@ -1896,6 +1908,7 @@ def cash_flow_pdf(
     company,
     start_date=None,
     end_date=None,
+    currency=None,
 ):
     """
     Generate Cash Flow Statement PDF.
@@ -1904,6 +1917,8 @@ def cash_flow_pdf(
     styles = get_pdf_styles()
 
     report = AccountingService.cash_flow_statement(
+        currency=currency,
+
         company=company,
         start_date=start_date,
         end_date=end_date,
@@ -1937,7 +1952,7 @@ def cash_flow_pdf(
         report_header(
             company=company,
             title="CASH FLOW STATEMENT",
-            currency=company.currency,
+            currency=currency or company.currency,
             styles=styles,
             period_text=period_text,
         )

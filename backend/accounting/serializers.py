@@ -1,240 +1,85 @@
-from django.db import transaction
 from rest_framework import serializers
 
 from .models import Account, JournalEntry, JournalLine
+from .services import AccountingService
 
-
-# ============================================================
-# ACCOUNT
-# ============================================================
 
 class AccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = Account
         fields = [
-            "id",
-            "company",
-            "code",
-            "name",
-            "account_type",
-            "cash_flow_category",
-            "description",
-            "parent",
-            "is_active",
-            "is_system_account",
-            "created_at",
-            "updated_at",
+            "id", "company", "code", "name", "currency", "account_type",
+            "cash_flow_category", "description", "parent", "is_active",
+            "is_system_account", "created_at", "updated_at",
         ]
-
-        read_only_fields = [
-            "id",
-            "is_system_account",
-            "created_at",
-            "updated_at",
-        ]
+        read_only_fields = ["id", "is_system_account", "created_at", "updated_at"]
 
     def validate(self, attrs):
-        company = attrs.get(
-            "company",
-            getattr(
-                self.instance,
-                "company",
-                None,
-            ),
-        )
-
-        parent = attrs.get(
-            "parent",
-            getattr(
-                self.instance,
-                "parent",
-                None,
-            ),
-        )
-
+        company = attrs.get("company", getattr(self.instance, "company", None))
+        parent = attrs.get("parent", getattr(self.instance, "parent", None))
+        currency = attrs.get("currency", getattr(self.instance, "currency", None))
         if parent and company and parent.company_id != company.id:
-            raise serializers.ValidationError({
-                "parent": (
-                    "Parent account must belong to "
-                    "the same company."
-                )
-            })
-
+            raise serializers.ValidationError({"parent": "Parent account must belong to the same company."})
+        if parent and currency and parent.currency != currency:
+            raise serializers.ValidationError({"parent": "Parent account must use the same currency."})
         return attrs
 
 
-# ============================================================
-# JOURNAL LINE
-# ============================================================
-
 class JournalLineSerializer(serializers.ModelSerializer):
-    account_name = serializers.CharField(
-        source="account.name",
-        read_only=True,
-    )
-
-    account_code = serializers.CharField(
-        source="account.code",
-        read_only=True,
-    )
-
+    account_name = serializers.CharField(source="account.name", read_only=True)
+    account_code = serializers.CharField(source="account.code", read_only=True)
     class Meta:
         model = JournalLine
-        fields = [
-            "id",
-            "account",
-            "account_code",
-            "account_name",
-            "description",
-            "debit",
-            "credit",
-        ]
+        fields = ["id", "account", "account_code", "account_name", "currency", "exchange_rate", "description", "debit", "credit", "functional_debit", "functional_credit", "is_currency_clearing"]
+        read_only_fields = ["id", "account_code", "account_name", "functional_debit", "functional_credit", "is_currency_clearing"]
 
-        read_only_fields = [
-            "id",
-            "account_code",
-            "account_name",
-        ]
-
-
-# ============================================================
-# JOURNAL ENTRY
-# ============================================================
 
 class JournalEntrySerializer(serializers.ModelSerializer):
-    lines = JournalLineSerializer(
-        many=True,
-    )
-
-    total_debit = serializers.DecimalField(
-        max_digits=18,
-        decimal_places=2,
-        read_only=True,
-    )
-
-    total_credit = serializers.DecimalField(
-        max_digits=18,
-        decimal_places=2,
-        read_only=True,
-    )
-
-    is_balanced = serializers.BooleanField(
-        read_only=True,
-    )
-
+    lines = JournalLineSerializer(many=True)
+    total_debit = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    total_credit = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    total_functional_debit = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    total_functional_credit = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    is_balanced = serializers.BooleanField(read_only=True)
     class Meta:
         model = JournalEntry
-
         fields = [
-            "id",
-            "company",
-            "reference",
-            "description",
-            "transaction_date",
-            "status",
-            "created_by",
-            "posted_by",
-            "posted_at",
-            "created_at",
-            "updated_at",
-            "lines",
-            "total_debit",
-            "total_credit",
-            "is_balanced",
+            "id", "company", "reference", "description", "transaction_date",
+            "status", "currency", "functional_currency", "exchange_rate",
+            "created_by", "posted_by", "posted_at", "created_at", "updated_at",
+            "lines", "total_debit", "total_credit", "total_functional_debit",
+            "total_functional_credit", "is_balanced",
         ]
-
         read_only_fields = [
-            "id",
-            "status",
-            "created_by",
-            "posted_by",
-            "posted_at",
-            "created_at",
-            "updated_at",
-            "total_debit",
-            "total_credit",
-            "is_balanced",
+            "id", "status", "created_by", "posted_by", "posted_at", "created_at",
+            "updated_at", "functional_currency", "total_debit", "total_credit",
+            "total_functional_debit", "total_functional_credit", "is_balanced",
         ]
 
     def validate(self, attrs):
         company = attrs.get("company")
-
-        lines = attrs.get(
-            "lines",
-            [],
-        )
-
+        lines = attrs.get("lines", [])
         if not company:
-            raise serializers.ValidationError({
-                "company": "Company is required."
-            })
-
+            raise serializers.ValidationError({"company": "Company is required."})
         if len(lines) < 2:
-            raise serializers.ValidationError({
-                "lines": (
-                    "A journal entry must contain "
-                    "at least two lines."
-                )
-            })
-
-        total_debit = 0
-        total_credit = 0
-
+            raise serializers.ValidationError({"lines": "A journal entry must contain at least two lines."})
         for line in lines:
             account = line["account"]
-
             if account.company_id != company.id:
-                raise serializers.ValidationError({
-                    "lines": (
-                        "Every account must belong to "
-                        "the selected company."
-                    )
-                })
-
+                raise serializers.ValidationError({"lines": "Every account must belong to the selected company."})
             if not account.is_active:
-                raise serializers.ValidationError({
-                    "lines": (
-                        f"Account {account.code} - "
-                        f"{account.name} is inactive."
-                    )
-                })
-
-            total_debit += line["debit"]
-            total_credit += line["credit"]
-
-        if total_debit != total_credit:
-            raise serializers.ValidationError({
-                "lines": (
-                    f"Journal entry is not balanced. "
-                    f"Debit: {total_debit}. "
-                    f"Credit: {total_credit}."
-                )
-            })
-
-        if total_debit == 0:
-            raise serializers.ValidationError({
-                "lines": (
-                    "The journal entry amount must "
-                    "be greater than zero."
-                )
-            })
-
+                raise serializers.ValidationError({"lines": f"Account {account.code} - {account.name} is inactive."})
+            currency = line.get("currency") or account.currency
+            if account.currency != currency:
+                raise serializers.ValidationError({"lines": f"Account {account.code} is {account.currency}; line currency is {currency}."})
         return attrs
 
-    @transaction.atomic
     def create(self, validated_data):
         lines = validated_data.pop("lines")
-
-        entry = JournalEntry.objects.create(
-            **validated_data,
+        created_by = validated_data.pop("created_by", self.context["request"].user)
+        entry = AccountingService.create_journal_entry(
+            **validated_data, lines=lines, created_by=created_by
         )
-
-        for line in lines:
-            JournalLine.objects.create(
-                journal_entry=entry,
-                **line,
-            )
-
         return entry
 
 

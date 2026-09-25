@@ -96,7 +96,11 @@ function accountTypeLabel(value) {
 }
 
 export default function ExpenseReports() {
-  const { currentCompany } = useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+    activeCurrencies,
+  } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName =
@@ -104,6 +108,29 @@ export default function ExpenseReports() {
 
   const companyCurrency =
     currentCompany?.currency || "USD";
+
+  const workspaceReportCurrency =
+    workspaceCurrency || companyCurrency;
+
+  const availableCurrencies = useMemo(() => {
+    const codes = (Array.isArray(activeCurrencies)
+      ? activeCurrencies
+      : []
+    )
+      .map((item) => item?.currency)
+      .map((value) =>
+        String(value || "").trim().toUpperCase()
+      )
+      .filter(Boolean);
+
+    return Array.from(
+      new Set(
+        codes.length
+          ? codes
+          : [companyCurrency, "USD", "LRD"]
+      )
+    );
+  }, [activeCurrencies, companyCurrency]);
 
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -135,14 +162,19 @@ export default function ExpenseReports() {
 
         setError("");
 
-        const response =
-          await api.get(
-            `/api/accounting/reports/general-ledger/?company=${companyId}`
-          );
+        const responses = await Promise.all(
+          availableCurrencies.map((currency) =>
+            api.get(
+              `/api/accounting/reports/general-ledger/?company=${companyId}&currency=${encodeURIComponent(currency)}`
+            )
+          )
+        );
 
-        setAccounts(
+        const merged = responses.flatMap((response) =>
           list(response)
         );
+
+        setAccounts(merged);
       } catch (err) {
         setError(
           extractError(err)
@@ -153,7 +185,7 @@ export default function ExpenseReports() {
         setRefreshing(false);
       }
     },
-    [companyId]
+    [companyId, availableCurrencies]
   );
 
   useEffect(() => {
@@ -222,6 +254,11 @@ export default function ExpenseReports() {
               accountType:
                 account.account_type ||
                 "EXPENSE",
+
+              currency:
+                transaction.currency ||
+                account.currency ||
+                companyCurrency,
 
               date:
                 transaction.transaction_date ||
@@ -294,10 +331,15 @@ export default function ExpenseReports() {
             !dateTo ||
             transaction.date <= dateTo;
 
+          const matchesCurrency =
+            currencyFilter === "ALL" ||
+            transaction.currency === currencyFilter;
+
           return (
             matchesSearch &&
             matchesFrom &&
-            matchesTo
+            matchesTo &&
+            matchesCurrency
           );
         }
       );
@@ -306,27 +348,35 @@ export default function ExpenseReports() {
       search,
       dateFrom,
       dateTo,
+      currencyFilter,
     ]);
 
   const totals = useMemo(() => {
     return filteredTransactions.reduce(
-      (total, transaction) => ({
-        expenses:
-          total.expenses +
-          transaction.debit,
+      (total, transaction) => {
+        if (transaction.currency === "LRD") {
+          return {
+            ...total,
+            expensesLRD: total.expensesLRD + transaction.debit,
+            creditsLRD: total.creditsLRD + transaction.credit,
+            netLRD: total.netLRD + transaction.amount,
+          };
+        }
 
-        credits:
-          total.credits +
-          transaction.credit,
-
-        net:
-          total.net +
-          transaction.amount,
-      }),
+        return {
+          ...total,
+          expenses: total.expenses + transaction.debit,
+          credits: total.credits + transaction.credit,
+          net: total.net + transaction.amount,
+        };
+      },
       {
         expenses: 0,
         credits: 0,
         net: 0,
+        expensesLRD: 0,
+        creditsLRD: 0,
+        netLRD: 0,
       }
     );
   }, [filteredTransactions]);
@@ -346,6 +396,8 @@ export default function ExpenseReports() {
               transaction.accountCode,
             name:
               transaction.accountName,
+            currency:
+              transaction.currency,
             amount: 0,
             transactions: 0,
           };
@@ -374,6 +426,7 @@ export default function ExpenseReports() {
       "Expense Account",
       "Reference",
       "Description",
+      "Currency",
       "Debit",
       "Credit",
       "Net Expense",
@@ -387,6 +440,7 @@ export default function ExpenseReports() {
           transaction.accountName,
           transaction.reference,
           transaction.description,
+          transaction.currency,
           transaction.debit.toFixed(2),
           transaction.credit.toFixed(2),
           transaction.amount.toFixed(2),
@@ -548,7 +602,9 @@ export default function ExpenseReports() {
           </span>
 
           <strong>
-            {companyCurrency}
+            {currencyFilter === "ALL"
+              ? workspaceReportCurrency
+              : currencyFilter}
           </strong>
         </div>
       </div>
@@ -604,10 +660,14 @@ export default function ExpenseReports() {
             </span>
 
             <strong>
-              {money(
-                totals.expenses,
-                companyCurrency
-              )}
+              {currencyFilter === "ALL"
+                ? `${money(totals.expenses, "USD")} + ${money(totals.expensesLRD || 0, "LRD")}`
+                : money(
+                    currencyFilter === "LRD"
+                      ? totals.expensesLRD
+                      : totals.expenses,
+                    currencyFilter
+                  )}
             </strong>
 
             <small>
@@ -627,10 +687,14 @@ export default function ExpenseReports() {
             </span>
 
             <strong>
-              {money(
-                totals.net,
-                companyCurrency
-              )}
+              {currencyFilter === "ALL"
+                ? `${money(totals.net, "USD")} + ${money(totals.netLRD || 0, "LRD")}`
+                : money(
+                    currencyFilter === "LRD"
+                      ? totals.netLRD
+                      : totals.net,
+                    currencyFilter
+                  )}
             </strong>
 
             <small>
@@ -725,13 +789,11 @@ export default function ExpenseReports() {
                 All Currencies
               </option>
 
-              <option value="USD">
-                USD
-              </option>
-
-              <option value="LRD">
-                LRD
-              </option>
+              {availableCurrencies.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -862,7 +924,10 @@ export default function ExpenseReports() {
                         <strong>
                           {money(
                             account.amount,
-                            companyCurrency
+                            account.currency ||
+                              (currencyFilter === "ALL"
+                                ? workspaceReportCurrency
+                                : currencyFilter)
                           )}
                         </strong>
 
@@ -954,6 +1019,10 @@ export default function ExpenseReports() {
                       Description
                     </th>
 
+                    <th>
+                      Currency
+                    </th>
+
                     <th className="amount">
                       Debit
                     </th>
@@ -1012,17 +1081,23 @@ export default function ExpenseReports() {
                           }
                         </td>
 
+                        <td>
+                          <span className="expense-reports-reference">
+                            {transaction.currency}
+                          </span>
+                        </td>
+
                         <td className="amount">
                           {money(
                             transaction.debit,
-                            companyCurrency
+                            transaction.currency
                           )}
                         </td>
 
                         <td className="amount">
                           {money(
                             transaction.credit,
-                            companyCurrency
+                            transaction.currency
                           )}
                         </td>
 
@@ -1030,7 +1105,7 @@ export default function ExpenseReports() {
                           <strong>
                             {money(
                               transaction.amount,
-                              companyCurrency
+                              transaction.currency
                             )}
                           </strong>
                         </td>
@@ -1042,23 +1117,29 @@ export default function ExpenseReports() {
                 <tfoot>
                   <tr>
                     <td
-                      colSpan="4"
+                      colSpan="5"
                     >
                       Total
                     </td>
 
                     <td className="amount">
-                      {money(
-                        totals.expenses,
-                        companyCurrency
-                      )}
+                      {currencyFilter === "ALL"
+                        ? `${money(totals.expenses, "USD")} + ${money(totals.expensesLRD, "LRD")}`
+                        : money(
+                            currencyFilter === "LRD"
+                              ? totals.expensesLRD
+                              : totals.expenses,
+                            currencyFilter
+                          )}
                     </td>
 
                     <td className="amount">
-                      {money(
-                        totals.credits,
-                        companyCurrency
-                      )}
+                      {currencyFilter === "ALL"
+                        ? `${money(totals.credits, "USD")} + ${money(totals.creditsLRD, "LRD")}`
+                        : money(
+                            totals.credits,
+                            currencyFilter
+                          )}
                     </td>
 
                     <td className="amount">

@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from accounting.models import Account
 from accounting.services import AccountingService
 
@@ -26,11 +28,12 @@ class PayrollRemittanceService:
     BANK_CODE = "1010"
 
     @staticmethod
-    def _get_account(*, company, code):
+    def _get_account(*, company, code, currency=None):
         try:
             return Account.objects.get(
                 company=company,
                 code=code,
+                currency=currency or company.currency,
                 is_active=True,
             )
         except Account.DoesNotExist:
@@ -121,6 +124,7 @@ class PayrollRemittanceService:
         liability_account = (
             PayrollRemittanceService._get_account(
                 company=company,
+                currency=payroll_period.currency,
                 code=PayrollRemittanceService.PAYROLL_LIABILITY_CODE,
             )
         )
@@ -129,6 +133,7 @@ class PayrollRemittanceService:
             payment_account = (
                 PayrollRemittanceService._get_account(
                     company=company,
+                    currency=payroll_period.currency,
                     code=PayrollRemittanceService.CASH_CODE,
                 )
             )
@@ -136,6 +141,7 @@ class PayrollRemittanceService:
             payment_account = (
                 PayrollRemittanceService._get_account(
                     company=company,
+                    currency=payroll_period.currency,
                     code=PayrollRemittanceService.BANK_CODE,
                 )
             )
@@ -166,6 +172,14 @@ class PayrollRemittanceService:
             created_by=created_by,
         )
 
+        accounting_rate = CompanyCurrencyService.get_rate(
+            company=company,
+            from_currency=payroll_period.currency,
+            to_currency=company.currency,
+            effective_date=remittance_date,
+            supplied_rate=None,
+        )
+
         journal_entry = AccountingService.create_journal_entry(
             company=company,
             reference=f"REMIT-{reference}",
@@ -183,6 +197,8 @@ class PayrollRemittanceService:
                     ),
                     "debit": amount,
                     "credit": Decimal("0.00"),
+                    "currency": payroll_period.currency,
+                    "exchange_rate": accounting_rate,
                 },
                 {
                     "account": payment_account,
@@ -192,8 +208,12 @@ class PayrollRemittanceService:
                     ),
                     "debit": Decimal("0.00"),
                     "credit": amount,
+                    "currency": payroll_period.currency,
+                    "exchange_rate": accounting_rate,
                 },
             ],
+            currency=payroll_period.currency,
+            exchange_rate=accounting_rate,
             post=True,
         )
 

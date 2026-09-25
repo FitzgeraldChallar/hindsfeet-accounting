@@ -32,6 +32,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -202,12 +207,13 @@ function exportCsv(filename, headers, rows) {
 
 
 export default function APAgingReport() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
   const navigate = useNavigate();
 
   const companyId = currentCompany?.id;
-  const currency =
-    currentCompany?.currency || "USD";
+  const currency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [bills, setBills] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -297,10 +303,13 @@ export default function APAgingReport() {
       return (
         balance > 0 &&
         bill.status !== "DRAFT" &&
-        bill.status !== "VOIDED"
+        bill.status !== "VOIDED" &&
+        currencyCode(
+          bill?.currency || currentCompany?.currency
+        ) === currency
       );
     });
-  }, [bills]);
+  }, [bills, currency, currentCompany?.currency]);
 
 
   const agingTotals = useMemo(() => {

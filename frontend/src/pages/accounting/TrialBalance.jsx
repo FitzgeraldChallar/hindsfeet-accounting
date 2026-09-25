@@ -112,14 +112,16 @@ function exportCsv(filename, headers, rows) {
 
 
 export default function TrialBalance() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName =
     currentCompany?.name || "Current Company";
 
   const currency =
-    currentCompany?.currency || "USD";
+    workspaceCurrency ||
+    currentCompany?.currency ||
+    "USD";
 
   const [accounts, setAccounts] = useState([]);
 
@@ -162,6 +164,7 @@ export default function TrialBalance() {
     try {
       const query = new URLSearchParams({
         company: companyId,
+        currency,
       });
 
       if (dateFrom) {
@@ -195,7 +198,7 @@ export default function TrialBalance() {
 
   useEffect(() => {
     loadData();
-  }, [companyId, dateFrom, dateTo]);
+  }, [companyId, workspaceCurrency, dateFrom, dateTo]);
 
 
   /* ============================================================
@@ -394,6 +397,7 @@ export default function TrialBalance() {
 
       const query = new URLSearchParams({
         company: companyId,
+        currency,
       });
 
       if (dateFrom) {
@@ -570,7 +574,7 @@ export default function TrialBalance() {
         <div className="trial-company-divider" />
 
         <div>
-          <span>Functional Currency</span>
+          <span>Reporting Currency</span>
           <strong>{currency}</strong>
         </div>
 

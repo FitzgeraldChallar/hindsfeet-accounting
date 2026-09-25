@@ -135,6 +135,7 @@ class EmployeeListCreateView(generics.ListCreateAPIView):
 
         serializer.save(
             created_by=self.request.user,
+            currency=serializer.validated_data.get("currency") or company.currency,
         )
 
 
@@ -181,16 +182,16 @@ class PayrollPeriodListCreateView(
         )
 
         company_id = self.request.query_params.get("company")
+        currency = self.request.query_params.get("currency")
 
         if user.is_superuser or user.role in [
             "OWNER",
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -202,6 +203,9 @@ class PayrollPeriodListCreateView(
             queryset = queryset.filter(
                 company_id=company_id
             )
+
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -643,6 +647,7 @@ class PayrollRecordListView(generics.ListAPIView):
 
         company_id = self.request.query_params.get("company")
         period_id = self.request.query_params.get("period")
+        currency = self.request.query_params.get("currency")
 
         if user.is_superuser or user.role in [
             "OWNER",
@@ -657,6 +662,8 @@ class PayrollRecordListView(generics.ListAPIView):
                 queryset = queryset.filter(
                     payroll_period_id=period_id
                 )
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
 
             return queryset
 
@@ -674,6 +681,8 @@ class PayrollRecordListView(generics.ListAPIView):
             queryset = queryset.filter(
                 payroll_period_id=period_id
             )
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -1798,6 +1807,7 @@ class PayrollRemittanceListCreateView(
 
         company_id = self.request.query_params.get("company")
         period_id = self.request.query_params.get("period")
+        currency = self.request.query_params.get("currency")
 
         if user.is_superuser or user.role in [
             "OWNER",
@@ -1811,6 +1821,10 @@ class PayrollRemittanceListCreateView(
             if period_id:
                 queryset = queryset.filter(
                     payroll_period_id=period_id
+                )
+            if currency:
+                queryset = queryset.filter(
+                    payroll_period__currency=currency.upper()
                 )
 
             return queryset
@@ -1828,6 +1842,10 @@ class PayrollRemittanceListCreateView(
         if period_id:
             queryset = queryset.filter(
                 payroll_period_id=period_id
+            )
+        if currency:
+            queryset = queryset.filter(
+                payroll_period__currency=currency.upper()
             )
 
         return queryset.distinct()

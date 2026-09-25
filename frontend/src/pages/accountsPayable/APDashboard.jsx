@@ -52,6 +52,11 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+
 function money(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -174,11 +179,12 @@ function statusClass(status) {
 
 
 export default function AccountsPayable() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
-  const companyCurrency =
-    currentCompany?.currency || "USD";
+  const companyCurrency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const [bills, setBills] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -233,7 +239,7 @@ export default function AccountsPayable() {
         setRefreshing(false);
       }
     },
-    [companyId]
+    [companyId, companyCurrency]
   );
 
 
@@ -253,13 +259,24 @@ export default function AccountsPayable() {
   }, [suppliers]);
 
 
+  const workspaceBills = useMemo(
+    () =>
+      bills.filter(
+        (bill) =>
+          currencyCode(
+            bill?.currency || currentCompany?.currency
+          ) === companyCurrency
+      ),
+    [bills, companyCurrency, currentCompany?.currency]
+  );
+
   const activeBills = useMemo(() => {
-    return bills.filter(
+    return workspaceBills.filter(
       (bill) =>
         bill.status !== "DRAFT" &&
         bill.status !== "VOIDED"
     );
-  }, [bills]);
+  }, [workspaceBills]);
 
 
   const outstandingBills = useMemo(() => {
@@ -508,9 +525,9 @@ export default function AccountsPayable() {
           <h1>Accounts Payable</h1>
 
           <p>
-            Monitor supplier liabilities,
-            outstanding bills, payments and
-            upcoming obligations.
+            Monitor {companyCurrency} supplier liabilities,
+            outstanding bills, payments and upcoming
+            obligations.
           </p>
         </div>
 

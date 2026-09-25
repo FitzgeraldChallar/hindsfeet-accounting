@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.db import transaction
 from rest_framework import generics, permissions
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -106,6 +106,8 @@ class AccountListCreateView(
             "parent",
         )
 
+        currency = self.request.query_params.get("currency")
+
         company_id = self.request.query_params.get(
             "company"
         )
@@ -115,10 +117,9 @@ class AccountListCreateView(
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -127,9 +128,9 @@ class AccountListCreateView(
         )
 
         if company_id:
-            queryset = queryset.filter(
-                company_id=company_id
-            )
+            queryset = queryset.filter(company_id=company_id)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -144,7 +145,13 @@ class AccountListCreateView(
                 "You do not have access to this company."
             )
 
-        serializer.save()
+        currency = self.request.data.get("currency") or company.currency
+        try:
+            from companies.currency_service import CompanyCurrencyService
+            CompanyCurrencyService.validate_enabled_currency(company=company, currency=currency)
+        except ValueError as exc:
+            raise ValidationError({"currency": str(exc)})
+        serializer.save(currency=currency)
 
 
 class AccountDetailView(
@@ -188,6 +195,8 @@ class JournalEntryListCreateView(
             "lines__account",
         )
 
+        currency = self.request.query_params.get("currency")
+
         company_id = self.request.query_params.get(
             "company"
         )
@@ -197,10 +206,9 @@ class JournalEntryListCreateView(
             "ADMIN",
         ]:
             if company_id:
-                return queryset.filter(
-                    company_id=company_id
-                )
-
+                queryset = queryset.filter(company_id=company_id)
+            if currency:
+                queryset = queryset.filter(currency=currency.upper())
             return queryset
 
         queryset = queryset.filter(
@@ -209,9 +217,9 @@ class JournalEntryListCreateView(
         )
 
         if company_id:
-            queryset = queryset.filter(
-                company_id=company_id
-            )
+            queryset = queryset.filter(company_id=company_id)
+        if currency:
+            queryset = queryset.filter(currency=currency.upper())
 
         return queryset.distinct()
 
@@ -320,6 +328,9 @@ class GeneralLedgerView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+        functional = request.query_params.get("basis", "transaction").lower() == "functional"
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -351,6 +362,8 @@ class GeneralLedgerView(APIView):
                 )
 
         ledger = AccountingService.general_ledger(
+            currency=currency,
+            functional=functional,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -385,6 +398,9 @@ class TrialBalanceView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+        functional = request.query_params.get("basis", "transaction").lower() == "functional"
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -394,6 +410,8 @@ class TrialBalanceView(APIView):
         )
 
         trial_balance = AccountingService.trial_balance(
+            currency=currency,
+            functional=functional,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -448,6 +466,9 @@ class IncomeStatementView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+        functional = request.query_params.get("basis", "transaction").lower() == "functional"
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -457,6 +478,8 @@ class IncomeStatementView(APIView):
         )
 
         report = AccountingService.income_statement(
+            currency=currency,
+            functional=functional,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -490,11 +513,16 @@ class BalanceSheetView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+        functional = request.query_params.get("basis", "transaction").lower() == "functional"
+
         as_of_date = request.query_params.get(
             "as_of_date"
         )
 
         report = AccountingService.balance_sheet(
+            currency=currency,
+            functional=functional,
             company=company,
             as_of_date=as_of_date,
         )
@@ -526,6 +554,9 @@ class CashFlowStatementView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+        functional = request.query_params.get("basis", "transaction").lower() == "functional"
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -535,6 +566,8 @@ class CashFlowStatementView(APIView):
         )
 
         report = AccountingService.cash_flow_statement(
+            currency=currency,
+            functional=functional,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -568,6 +601,8 @@ class GeneralLedgerPDFView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -597,6 +632,7 @@ class GeneralLedgerPDFView(APIView):
                 )
 
         return general_ledger_pdf(
+            currency=currency,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -619,6 +655,8 @@ class TrialBalancePDFView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -628,6 +666,7 @@ class TrialBalancePDFView(APIView):
         )
 
         return trial_balance_pdf(
+            currency=currency,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -649,6 +688,8 @@ class IncomeStatementPDFView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -658,6 +699,7 @@ class IncomeStatementPDFView(APIView):
         )
 
         return income_statement_pdf(
+            currency=currency,
             company=company,
             start_date=start_date,
             end_date=end_date,
@@ -679,11 +721,14 @@ class BalanceSheetPDFView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+
         as_of_date = request.query_params.get(
             "as_of_date"
         )
 
         return balance_sheet_pdf(
+            currency=currency,
             company=company,
             as_of_date=as_of_date,
         )
@@ -704,6 +749,8 @@ class CashFlowPDFView(APIView):
         if error:
             return error
 
+        currency = request.query_params.get("currency")
+
         start_date = request.query_params.get(
             "start_date"
         )
@@ -713,6 +760,7 @@ class CashFlowPDFView(APIView):
         )
 
         return cash_flow_pdf(
+            currency=currency,
             company=company,
             start_date=start_date,
             end_date=end_date,

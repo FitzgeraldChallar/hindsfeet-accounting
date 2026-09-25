@@ -7,6 +7,7 @@ import {
 
 import {
   AlertCircle,
+  ArrowLeftRight,
   Building2,
   CheckCircle2,
   Eye,
@@ -157,6 +158,13 @@ export default function Settings() {
   const {
     currentCompany,
     selectCompany,
+    activeCurrencies,
+    workspaceCurrency,
+    functionalCurrency,
+    exchangeRates,
+    workspaceLoading,
+    workspaceError,
+    refreshWorkspace,
   } = useCompany();
 
   const [user, setUser] = useState(null);
@@ -187,6 +195,17 @@ export default function Settings() {
 
   const [activeSection, setActiveSection] =
     useState("profile");
+
+  const [exchangeRateForm, setExchangeRateForm] =
+    useState({
+      from_currency: "",
+      to_currency: "",
+      rate: "",
+      effective_date: new Date().toISOString().slice(0, 10),
+    });
+
+  const [savingExchangeRate, setSavingExchangeRate] =
+    useState(false);
 
   const [profile, setProfile] = useState({
     first_name: "",
@@ -801,6 +820,178 @@ export default function Settings() {
 
 
   /* ==========================================================
+     EXCHANGE RATE FORM DISPLAY VALUES
+     ========================================================== */
+
+  const availableCurrencyCodes = useMemo(
+    () =>
+      activeCurrencies
+        .map((item) => String(item?.currency || "").toUpperCase())
+        .filter(Boolean),
+    [activeCurrencies]
+  );
+
+  const exchangeRateFromCurrency =
+    availableCurrencyCodes.includes(
+      exchangeRateForm.from_currency
+    )
+      ? exchangeRateForm.from_currency
+      : functionalCurrency &&
+          availableCurrencyCodes.includes(functionalCurrency)
+        ? functionalCurrency
+        : availableCurrencyCodes[0] || "";
+
+  const exchangeRateToCurrency =
+    availableCurrencyCodes.includes(exchangeRateForm.to_currency) &&
+    exchangeRateForm.to_currency !== exchangeRateFromCurrency
+      ? exchangeRateForm.to_currency
+      : availableCurrencyCodes.find(
+          (code) => code !== exchangeRateFromCurrency
+        ) || "";
+
+
+  function updateExchangeRateField(field, value) {
+    setExchangeRateForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+
+    setError("");
+    setSuccess("");
+  }
+
+
+  async function saveExchangeRate(event) {
+    event.preventDefault();
+
+    if (!currentCompany?.id) {
+      setError("Select a company before adding an exchange rate.");
+      return;
+    }
+
+    const fromCurrency = exchangeRateFromCurrency;
+    const toCurrency = exchangeRateToCurrency;
+    const rate = Number(exchangeRateForm.rate);
+
+    if (!fromCurrency || !toCurrency) {
+      setError("Select both currencies.");
+      return;
+    }
+
+    if (fromCurrency === toCurrency) {
+      setError("From and To currency must be different.");
+      return;
+    }
+
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setError("Exchange rate must be greater than zero.");
+      return;
+    }
+
+    if (!exchangeRateForm.effective_date) {
+      setError("Effective date is required.");
+      return;
+    }
+
+    const normalizedRate = Number(rate.toFixed(6));
+    const effectiveDate = exchangeRateForm.effective_date;
+
+    // The backend intentionally keeps exchange rates immutable by date:
+    // company + from_currency + to_currency + effective_date is unique.
+    // Handle that rule in the UI before making a request so users get a
+    // useful message instead of a raw DRF unique-set validation error.
+    const existingRate = exchangeRates.find((item) => {
+      return (
+        String(item?.from_currency || "").toUpperCase() === fromCurrency &&
+        String(item?.to_currency || "").toUpperCase() === toCurrency &&
+        String(item?.effective_date || "").slice(0, 10) === effectiveDate
+      );
+    });
+
+    if (existingRate) {
+      const existingValue = Number(existingRate.rate);
+
+      if (Number.isFinite(existingValue) && Math.abs(existingValue - normalizedRate) < 0.000001) {
+        setError("");
+        setSuccess(
+          `This exchange rate is already configured: 1 ${fromCurrency} = ${existingValue.toFixed(6)} ${toCurrency} effective ${formatRateDate(effectiveDate)}.`
+        );
+      } else {
+        setSuccess("");
+        setError(
+          `An exchange rate already exists for ${fromCurrency} → ${toCurrency} on ${formatRateDate(effectiveDate)} (${Number.isFinite(existingValue) ? existingValue.toFixed(6) : "existing rate"}). Historical exchange rates are immutable, so use a new effective date for a new rate.`
+        );
+      }
+
+      return;
+    }
+
+    setSavingExchangeRate(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      await api.post(
+        `/api/companies/${currentCompany.id}/exchange-rates/`,
+        {
+          company: currentCompany.id,
+          from_currency: fromCurrency,
+          to_currency: toCurrency,
+          rate: normalizedRate.toFixed(6),
+          effective_date: effectiveDate,
+          is_active: true,
+        }
+      );
+
+      // Refresh the workspace silently. The existing workspace remains
+      // visible while the latest rate list is fetched, preventing the
+      // topbar/settings UI from flashing to "Loading..." or zero counts.
+      await refreshWorkspace({ silent: true });
+
+      setExchangeRateForm((current) => ({
+        ...current,
+        rate: "",
+      }));
+
+      setSuccess(
+        `Exchange rate saved: 1 ${fromCurrency} = ${normalizedRate.toFixed(6)} ${toCurrency}.`
+      );
+    } catch (err) {
+      const message = extractError(err);
+      const uniqueSetError =
+        typeof message === "string" &&
+        message.toLowerCase().includes("must make a unique set");
+
+      setError(
+        uniqueSetError
+          ? `An exchange rate already exists for ${fromCurrency} → ${toCurrency} on ${formatRateDate(effectiveDate)}. Historical exchange rates are immutable, so use a new effective date for a new rate.`
+          : message || "Unable to save the exchange rate."
+      );
+    } finally {
+      setSavingExchangeRate(false);
+    }
+  }
+
+
+  function formatRateDate(value) {
+    if (!value) return "—";
+
+    const parts = String(value).split("-");
+
+    if (parts.length !== 3) return value;
+
+    return new Date(
+      Number(parts[0]),
+      Number(parts[1]) - 1,
+      Number(parts[2])
+    ).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  /* ==========================================================
      LOADING
      ========================================================== */
 
@@ -842,8 +1033,7 @@ export default function Settings() {
           <h1>Settings</h1>
 
           <p>
-            Manage your profile, security and
-            company branding.
+            Manage your profile, security, company branding and currency workspaces.
           </p>
         </div>
 
@@ -1029,6 +1219,25 @@ export default function Settings() {
 
             <span>
               Company Branding
+            </span>
+          </button>
+
+
+          <button
+            type="button"
+            className={
+              activeSection === "currency"
+                ? "settings-nav-item settings-nav-item-active"
+                : "settings-nav-item"
+            }
+            onClick={() =>
+              setActiveSection("currency")
+            }
+          >
+            <ArrowLeftRight size={17} />
+
+            <span>
+              Currencies & Rates
             </span>
           </button>
 
@@ -1694,6 +1903,255 @@ export default function Settings() {
 
 
           {/* =================================================
+              CURRENCY WORKSPACES
+              ================================================= */}
+
+          {activeSection === "currency" && (
+            <section className="settings-panel settings-currency-panel">
+
+              <div className="settings-panel-header">
+                <div className="settings-panel-icon">
+                  <ArrowLeftRight size={19} />
+                </div>
+
+                <div>
+                  <div className="settings-section-label">
+                    CURRENCY WORKSPACES
+                  </div>
+
+                  <h2>
+                    Currencies & Exchange Rates
+                  </h2>
+
+                  <p>
+                    Manage the active accounting workspaces and historical exchange rates used for multi-currency transactions.
+                  </p>
+                </div>
+              </div>
+
+              <div className="settings-currency-summary-grid">
+                <div className="settings-currency-summary-card">
+                  <span>Functional currency</span>
+                  <strong>{functionalCurrency || "—"}</strong>
+                </div>
+
+                <div className="settings-currency-summary-card">
+                  <span>Current workspace</span>
+                  <strong>{workspaceCurrency || "—"}</strong>
+                </div>
+
+                <div className="settings-currency-summary-card">
+                  <span>Active workspaces</span>
+                  <strong>
+                    {workspaceLoading && activeCurrencies.length === 0
+                      ? "…"
+                      : activeCurrencies.length}
+                  </strong>
+                </div>
+              </div>
+
+              {workspaceError && (
+                <div className="settings-currency-error">
+                  <AlertCircle size={16} />
+                  <span>{workspaceError}</span>
+                </div>
+              )}
+
+              <div className="settings-currency-section">
+                <div className="settings-currency-section-heading">
+                  <div>
+                    <ArrowLeftRight size={18} />
+                    <div>
+                      <h3>Add Exchange Rate</h3>
+                      <p>Rates are historical. The effective date determines which rate is used for a transaction.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <form onSubmit={saveExchangeRate}>
+                  <div className="settings-form-grid">
+                    <label className="settings-field">
+                      <span>From currency</span>
+                      <select
+                        value={exchangeRateFromCurrency}
+                        onChange={(event) =>
+                          updateExchangeRateField(
+                            "from_currency",
+                            event.target.value
+                          )
+                        }
+                        disabled={savingExchangeRate || workspaceLoading}
+                      >
+                        <option value="">Select currency</option>
+                        {activeCurrencies.map((item) => {
+                          const code = String(item?.currency || "").toUpperCase();
+                          return (
+                            <option key={item.id || code} value={code}>
+                              {code}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    <label className="settings-field">
+                      <span>To currency</span>
+                      <select
+                        value={exchangeRateToCurrency}
+                        onChange={(event) =>
+                          updateExchangeRateField(
+                            "to_currency",
+                            event.target.value
+                          )
+                        }
+                        disabled={savingExchangeRate || workspaceLoading}
+                      >
+                        <option value="">Select currency</option>
+                        {activeCurrencies.map((item) => {
+                          const code = String(item?.currency || "").toUpperCase();
+                          return (
+                            <option
+                              key={item.id || code}
+                              value={code}
+                              disabled={code === exchangeRateFromCurrency}
+                            >
+                              {code}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    <label className="settings-field">
+                      <span>Rate</span>
+                      <input
+                        type="number"
+                        min="0.000001"
+                        step="0.000001"
+                        value={exchangeRateForm.rate}
+                        onChange={(event) =>
+                          updateExchangeRateField(
+                            "rate",
+                            event.target.value
+                          )
+                        }
+                        placeholder="e.g. 200"
+                        disabled={savingExchangeRate || workspaceLoading}
+                      />
+                    </label>
+
+                    <label className="settings-field">
+                      <span>Effective date</span>
+                      <input
+                        type="date"
+                        value={exchangeRateForm.effective_date}
+                        onChange={(event) =>
+                          updateExchangeRateField(
+                            "effective_date",
+                            event.target.value
+                          )
+                        }
+                        disabled={savingExchangeRate || workspaceLoading}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="settings-rate-meaning">
+                    <span>Rate meaning</span>
+                    <strong>
+                      {exchangeRateFromCurrency || "—"} 1 = {exchangeRateToCurrency || "—"} {exchangeRateForm.rate || "—"}
+                    </strong>
+                  </div>
+
+                  <div className="settings-form-footer settings-form-footer-end">
+                    <button
+                      type="submit"
+                      className="settings-primary-button"
+                      disabled={
+                        savingExchangeRate ||
+                        workspaceLoading ||
+                        activeCurrencies.length < 2
+                      }
+                    >
+                      {savingExchangeRate ? (
+                        <>
+                          <RefreshCw size={16} className="settings-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          Save Exchange Rate
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="settings-currency-section settings-currency-existing">
+                <div className="settings-currency-section-heading">
+                  <div>
+                    <ArrowLeftRight size={18} />
+                    <div>
+                      <h3>Existing Exchange Rates</h3>
+                      <p>Previously configured rates remain available for historical conversion.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {workspaceLoading && exchangeRates.length === 0 ? (
+                  <div className="settings-currency-loading">
+                    <RefreshCw size={17} className="settings-spin" />
+                    Loading exchange rates...
+                  </div>
+                ) : exchangeRates.length === 0 ? (
+                  <div className="settings-currency-empty">
+                    No exchange rates have been configured yet.
+                  </div>
+                ) : (
+                  <div className="settings-currency-rates-table-wrap">
+                    <table className="settings-currency-rates-table">
+                      <thead>
+                        <tr>
+                          <th>From</th>
+                          <th>To</th>
+                          <th>Rate</th>
+                          <th>Effective date</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...exchangeRates]
+                          .sort((a, b) =>
+                            String(b?.effective_date || "").localeCompare(
+                              String(a?.effective_date || "")
+                            )
+                          )
+                          .map((item) => (
+                            <tr key={item.id}>
+                              <td>{item.from_currency}</td>
+                              <td>{item.to_currency}</td>
+                              <td>{Number(item.rate || 0).toFixed(6)}</td>
+                              <td>{formatRateDate(item.effective_date)}</td>
+                              <td>
+                                <span className="settings-rate-status">
+                                  {item.is_active === false ? "Inactive" : "Active"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+            </section>
+          )}
+
+
+          {/* =================================================
               ACCOUNT INFORMATION
               ================================================= */}
 
@@ -1766,12 +2224,24 @@ export default function Settings() {
 
               <div>
                 <span>
-                  Company Currency
+                  Functional Currency
                 </span>
 
                 <strong>
-                  {currentCompany?.currency ||
+                  {functionalCurrency ||
+                    currentCompany?.currency ||
                     "—"}
+                </strong>
+              </div>
+
+
+              <div>
+                <span>
+                  Workspace Currency
+                </span>
+
+                <strong>
+                  {workspaceCurrency || "—"}
                 </strong>
               </div>
 

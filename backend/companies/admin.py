@@ -1,7 +1,12 @@
 from django.contrib import admin
 
 from .deletion import delete_company_data
-from .models import Company, CompanyMembership
+from .models import (
+    Company,
+    CompanyCurrency,
+    CompanyExchangeRate,
+    CompanyMembership,
+)
 
 
 @admin.register(Company)
@@ -104,4 +109,55 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
         "user__first_name",
         "user__last_name",
         "company__name",
+    )
+
+@admin.register(CompanyCurrency)
+class CompanyCurrencyAdmin(admin.ModelAdmin):
+    list_display = (
+        "company",
+        "currency",
+        "is_default",
+        "is_active",
+        "created_at",
+    )
+
+    list_filter = (
+        "currency",
+        "is_default",
+        "is_active",
+    )
+
+    search_fields = (
+        "company__name",
+        "company__legal_name",
+    )
+
+
+@admin.register(CompanyExchangeRate)
+class CompanyExchangeRateAdmin(admin.ModelAdmin):
+    list_display = (
+        "company",
+        "from_currency",
+        "to_currency",
+        "rate",
+        "effective_date",
+        "is_active",
+        "created_by",
+    )
+
+    list_filter = (
+        "from_currency",
+        "to_currency",
+        "is_active",
+        "effective_date",
+    )
+
+    search_fields = (
+        "company__name",
+        "company__legal_name",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
     )

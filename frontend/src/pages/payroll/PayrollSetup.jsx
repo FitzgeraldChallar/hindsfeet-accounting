@@ -208,11 +208,15 @@ function isAutomaticDeduction(type) {
 }
 
 export default function PayrollSetup() {
-  const { currentCompany } = useCompany();
+  const {
+    currentCompany,
+    workspaceCurrency,
+  } = useCompany();
 
   const companyId = currentCompany?.id;
 
   const currency =
+    workspaceCurrency ||
     currentCompany?.currency ||
     currentCompany?.currency_code ||
     "USD";
@@ -295,7 +299,7 @@ export default function PayrollSetup() {
             `/api/payroll/employees/?company=${companyId}`
           ),
           api.get(
-            `/api/payroll/periods/?company=${companyId}`
+            `/api/payroll/periods/?company=${companyId}&currency=${currency}`
           ),
           api.get(
             `/api/payroll/earning-types/?company=${companyId}`
@@ -332,7 +336,7 @@ export default function PayrollSetup() {
         setLoading(false);
       }
     },
-    [companyId]
+    [companyId, currency]
   );
 
   useEffect(() => {
@@ -344,9 +348,11 @@ export default function PayrollSetup() {
       employees.filter(
         (employee) =>
           employee.employment_status === "ACTIVE" &&
-          employee.pay_frequency === "MONTHLY"
+          employee.pay_frequency === "MONTHLY" &&
+          String(employee.currency || currency).toUpperCase() ===
+            String(currency).toUpperCase()
       ),
-    [employees]
+    [employees, currency]
   );
 
   const sortedPeriods = useMemo(
@@ -390,11 +396,17 @@ export default function PayrollSetup() {
   }, [periodId, sortedPeriods]);
 
   useEffect(() => {
-    if (!employeeId && activeEmployees.length) {
-      setEmployeeId(
-        String(activeEmployees[0].id)
-      );
+    const stillValid = activeEmployees.some(
+      (employee) => String(employee.id) === String(employeeId)
+    );
+
+    if (stillValid) {
+      return;
     }
+
+    setEmployeeId(
+      activeEmployees[0]?.id ? String(activeEmployees[0].id) : ""
+    );
   }, [employeeId, activeEmployees]);
 
   const selectedPeriod = sortedPeriods.find(

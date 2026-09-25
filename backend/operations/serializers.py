@@ -4,6 +4,7 @@ from .models import (
     Inventory,
     InventoryTransaction,
     Product,
+    ProductPrice,
     ProductCategory,
     FuelPump,
     PumpAttendant,
@@ -34,6 +35,25 @@ class ProductCategorySerializer(
             "created_at",
             "updated_at",
         ]
+
+
+class ProductPriceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductPrice
+        fields = ["id", "product", "currency", "selling_price", "cost_price", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        product = attrs.get("product", getattr(self.instance, "product", None))
+        if product and attrs.get("currency"):
+            from companies.currency_service import CompanyCurrencyService
+            try:
+                CompanyCurrencyService.validate_enabled_currency(
+                    company=product.company, currency=attrs["currency"]
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({"currency": str(exc)})
+        return attrs
 
 
 class InventorySerializer(
@@ -102,6 +122,9 @@ class InventoryTransactionSerializer(
             "transaction_type_display",
             "quantity",
             "unit_cost",
+            "currency",
+            "exchange_rate",
+            "functional_unit_cost",
             "reference",
             "description",
             "transaction_date",
@@ -114,6 +137,7 @@ class InventoryTransactionSerializer(
             "product_code",
             "product_name",
             "transaction_type_display",
+            "functional_unit_cost",
             "created_by",
             "created_at",
         ]
@@ -161,6 +185,11 @@ class InventoryTransactionSerializer(
 class ProductSerializer(
     serializers.ModelSerializer
 ):
+    prices = ProductPriceSerializer(
+        many=True,
+        read_only=True,
+    )
+
     inventory = InventorySerializer(
         read_only=True,
     )
@@ -200,6 +229,7 @@ class ProductSerializer(
             "track_inventory",
             "is_active",
             "inventory",
+            "prices",
             "inventory_quantity",
             "reorder_level",
             "created_at",
@@ -333,6 +363,8 @@ class SaleSerializer(
         fields = [
             "id",
             "company",
+            "currency",
+            "exchange_rate",
             "sale_number",
             "sale_date",
             "customer_name",
@@ -557,6 +589,8 @@ class PumpSaleSerializer(
             "pump",
             "fuel_product",
             "sale_date",
+            "currency",
+            "exchange_rate",
             "opening_meter",
             "closing_meter",
             "litres_sold",

@@ -57,7 +57,7 @@ function sectionLabel(section) {
 }
 
 export default function CashFlowStatement() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const [report, setReport] = useState(null);
 
@@ -83,8 +83,9 @@ export default function CashFlowStatement() {
     "Selected Company";
 
   const currency =
-    currentCompany?.currency ||
+    workspaceCurrency ||
     report?.currency ||
+    currentCompany?.currency ||
     "USD";
 
   /* ============================================================
@@ -109,6 +110,7 @@ export default function CashFlowStatement() {
       const params = new URLSearchParams();
 
       params.set("company", companyId);
+      params.set("currency", currency);
 
       if (from) {
         params.set("start_date", from);
@@ -138,7 +140,7 @@ export default function CashFlowStatement() {
 
   useEffect(() => {
     loadReport("", "");
-  }, [companyId]);
+  }, [companyId, workspaceCurrency]);
 
   /* ============================================================
      REPORT DATA
@@ -533,6 +535,10 @@ export default function CashFlowStatement() {
       params.set(
         "company",
         companyId
+      );
+      params.set(
+        "currency",
+        currency
       );
 
       if (dateFrom) {

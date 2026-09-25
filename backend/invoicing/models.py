@@ -433,12 +433,37 @@ class CustomerPayment(models.Model):
         ],
     )
 
+    currency = models.CharField(
+        max_length=3, choices=Invoice.Currency.choices, default=Invoice.Currency.USD
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000"),
+        validators=[MinValueValidator(Decimal("0.000001"))],
+    )
+
+    amount_in_invoice_currency = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
+    functional_amount = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
     payment_date = models.DateField()
 
     payment_method = models.CharField(
         max_length=30,
         choices=PaymentMethod.choices,
         default=PaymentMethod.BANK,
+    )
+
+    bank_account = models.ForeignKey(
+        "banking.BankAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="customer_payments",
     )
 
     reference = models.CharField(
@@ -504,6 +529,15 @@ class SupplierBill(models.Model):
         Supplier,
         on_delete=models.PROTECT,
         related_name="bills",
+    )
+
+    currency = models.CharField(
+        max_length=3, choices=Invoice.Currency.choices, default=Invoice.Currency.USD
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000"),
+        validators=[MinValueValidator(Decimal("0.000001"))],
     )
 
     bill_number = models.CharField(
@@ -711,12 +745,37 @@ class SupplierPayment(models.Model):
         ],
     )
 
+    currency = models.CharField(
+        max_length=3, choices=Invoice.Currency.choices, default=Invoice.Currency.USD
+    )
+
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, default=Decimal("1.000000"),
+        validators=[MinValueValidator(Decimal("0.000001"))],
+    )
+
+    amount_in_bill_currency = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
+    functional_amount = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+
     payment_date = models.DateField()
 
     payment_method = models.CharField(
         max_length=30,
         choices=PaymentMethod.choices,
         default=PaymentMethod.BANK,
+    ) 
+
+    bank_account = models.ForeignKey(
+        "banking.BankAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_payments",
     )
 
     reference = models.CharField(

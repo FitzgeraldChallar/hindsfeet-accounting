@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from .models import PumpSale
+from companies.currency_service import CompanyCurrencyService
 
 
 class GasStationDailyReportService:
@@ -28,6 +29,7 @@ class GasStationDailyReportService:
         *,
         company,
         report_date,
+        currency=None,
     ):
         """
         Generate a complete daily fuel-sales report.
@@ -47,12 +49,18 @@ class GasStationDailyReportService:
             company
         )
 
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company,
+            currency=currency or company.currency,
+        )
+
         sales = (
             PumpSale.objects
             .filter(
                 company=company,
                 sale_date=report_date,
                 status=PumpSale.Status.COMPLETED,
+                currency=currency,
             )
             .select_related(
                 "attendant",
@@ -210,6 +218,7 @@ class GasStationDailyReportService:
             "company": company.id,
             "company_name": company.name,
             "report_date": report_date,
+            "currency": currency,
 
             "fuel_sales": {
                 "total_litres": total_litres,

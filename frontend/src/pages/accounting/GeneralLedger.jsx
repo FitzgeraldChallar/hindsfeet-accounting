@@ -74,13 +74,15 @@ const accountTypeClass = (type) =>
   String(type || "other").toLowerCase();
 
 export default function GeneralLedger() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName =
     currentCompany?.name || "Current Company";
   const companyCurrency =
-    currentCompany?.currency || "USD";
+    workspaceCurrency ||
+    currentCompany?.currency ||
+    "USD";
 
   const [accounts, setAccounts] = useState([]);
   const [ledger, setLedger] = useState([]);
@@ -122,6 +124,7 @@ export default function GeneralLedger() {
     try {
       const query = new URLSearchParams({
         company: companyId,
+        currency: companyCurrency,
       });
 
       if (dateFrom) {
@@ -141,7 +144,7 @@ export default function GeneralLedger() {
         ledgerResponse,
       ] = await Promise.all([
         api.get(
-          `/api/accounting/accounts/?company=${companyId}`
+          `/api/accounting/accounts/?company=${companyId}&currency=${companyCurrency}`
         ),
         api.get(
           `/api/accounting/reports/general-ledger/?${query.toString()}`
@@ -171,6 +174,7 @@ export default function GeneralLedger() {
     loadData();
   }, [
     companyId,
+    companyCurrency,
     dateFrom,
     dateTo,
     accountFilter,
@@ -374,6 +378,7 @@ export default function GeneralLedger() {
     try {
       const query = new URLSearchParams({
         company: companyId,
+        currency: companyCurrency,
       });
 
       if (dateFrom) {
@@ -543,7 +548,7 @@ export default function GeneralLedger() {
         <div className="gl-company-divider" />
 
         <div>
-          <span>Functional Currency</span>
+          <span>Reporting Currency</span>
           <strong>{companyCurrency}</strong>
         </div>
 

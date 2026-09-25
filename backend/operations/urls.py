@@ -6,6 +6,7 @@ from .views import (
     ProductCategoryListCreateView,
     ProductListCreateView,
     ProductDetailView,
+    ProductPriceListCreateView,
 
     # Sales
     SaleListView,
@@ -38,6 +39,12 @@ urlpatterns = [
         "products/",
         ProductListCreateView.as_view(),
         name="product-list-create",
+    ),
+
+    path(
+        "products/prices/",
+        ProductPriceListCreateView.as_view(),
+        name="product-price-list-create",
     ),
 
     path(

@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from companies.currency_service import CompanyCurrencyService
+
 from .models import Inventory, InventoryTransaction
 
 
@@ -18,6 +20,8 @@ class InventoryService:
         created_by,
         transaction_date,
         unit_cost=Decimal("0.00"),
+        currency=None,
+        exchange_rate=None,
         reference="",
         description="",
     ):
@@ -28,6 +32,15 @@ class InventoryService:
 
         quantity = Decimal(str(quantity))
         unit_cost = Decimal(str(unit_cost))
+        currency = CompanyCurrencyService.validate_enabled_currency(
+            company=company, currency=currency or company.currency
+        )
+        functional_currency = CompanyCurrencyService.get_functional_currency(company)
+        rate = CompanyCurrencyService.get_rate(
+            company=company, from_currency=currency, to_currency=functional_currency,
+            effective_date=transaction_date, supplied_rate=exchange_rate,
+        )
+        functional_unit_cost = CompanyCurrencyService.money(unit_cost * rate)
 
         if quantity <= 0:
             raise ValueError(
@@ -88,6 +101,9 @@ class InventoryService:
             transaction_type=transaction_type,
             quantity=quantity,
             unit_cost=unit_cost,
+            currency=currency,
+            exchange_rate=rate,
+            functional_unit_cost=functional_unit_cost,
             reference=reference,
             description=description,
             transaction_date=transaction_date,

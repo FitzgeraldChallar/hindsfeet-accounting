@@ -103,10 +103,11 @@ function formatDate(value) {
   });
 }
 
-function buildQuery(report, companyId, filters) {
+function buildQuery(report, companyId, currency, filters) {
   const query = new URLSearchParams();
 
   query.set("company", companyId);
+  query.set("currency", currency);
 
   if (report.periodType === "range") {
     if (filters.startDate) {
@@ -152,13 +153,15 @@ function reportPeriodText(report, filters) {
 }
 
 export default function FinancialReports() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const companyId = currentCompany?.id;
   const companyName =
     currentCompany?.name || "No company selected";
   const currency =
-    currentCompany?.currency || "USD";
+    workspaceCurrency ||
+    currentCompany?.currency ||
+    "USD";
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -206,6 +209,7 @@ export default function FinancialReports() {
       const query = buildQuery(
         report,
         companyId,
+        currency,
         {
           startDate,
           endDate,

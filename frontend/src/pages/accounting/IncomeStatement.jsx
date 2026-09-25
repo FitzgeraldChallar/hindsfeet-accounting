@@ -60,7 +60,7 @@ function labelAccountType(type) {
 }
 
 export default function IncomeStatement() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency } = useCompany();
 
   const [report, setReport] = useState(null);
 
@@ -83,8 +83,9 @@ export default function IncomeStatement() {
     "Selected Company";
 
   const currency =
-    currentCompany?.currency ||
+    workspaceCurrency ||
     report?.currency ||
+    currentCompany?.currency ||
     "USD";
 
   /* ============================================================
@@ -106,6 +107,7 @@ export default function IncomeStatement() {
       const params = new URLSearchParams();
 
       params.set("company", companyId);
+      params.set("currency", currency);
 
       if (dateFrom) {
         params.set("start_date", dateFrom);
@@ -135,7 +137,7 @@ export default function IncomeStatement() {
 
   useEffect(() => {
     loadReport();
-  }, [companyId]);
+  }, [companyId, workspaceCurrency]);
 
   /* ============================================================
      REPORT DATA
@@ -445,6 +447,7 @@ export default function IncomeStatement() {
       const params = new URLSearchParams();
 
       params.set("company", companyId);
+      params.set("currency", currency);
 
       if (dateFrom) {
         params.set("start_date", dateFrom);

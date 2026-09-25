@@ -173,11 +173,14 @@ function PayrollPeriodModal({
           "6",
       });
     } else {
-      setForm(emptyPeriod());
+      setForm({
+        ...emptyPeriod(),
+        exchange_rate: currency === "LRD" ? "1" : "1",
+      });
     }
 
     setError("");
-  }, [open, employeePeriod]);
+  }, [open, employeePeriod, currency]);
 
 
   function updateField(field, value) {
@@ -308,6 +311,7 @@ function PayrollPeriodModal({
         start_date: form.start_date,
         end_date: form.end_date,
         pay_date: form.pay_date,
+        currency,
         notes: form.notes.trim(),
 
         exchange_rate:
@@ -533,6 +537,23 @@ function PayrollPeriodModal({
                 />
               </div>
 
+
+              <div className="payroll-period-field">
+                <label>
+                  Payroll Currency
+                </label>
+
+                <input
+                  value={currency}
+                  readOnly
+                  aria-label="Payroll currency"
+                />
+
+                <small>
+                  This payroll period follows the active workspace currency.
+                </small>
+              </div>
+
             </div>
           </div>
 
@@ -576,12 +597,15 @@ function PayrollPeriodModal({
                       event.target.value
                     )
                   }
+                  disabled={currency === "LRD"}
                   required
                 />
 
                 <small>
                   1 {currency} = this amount in LRD.
-                  For LRD payroll, use 1.
+                  {currency === "LRD"
+                    ? " LRD payroll uses 1.000000 automatically."
+                    : " Enter the USD-to-LRD rate applicable on the pay date."}
                 </small>
               </div>
 
@@ -1015,7 +1039,10 @@ function PayrollPeriodDetails({
 // ============================================================
 
 export default function PayrollPeriods() {
-  const { currentCompany } =
+  const {
+    currentCompany,
+    workspaceCurrency,
+  } =
     useCompany();
 
   const companyId =
@@ -1026,6 +1053,7 @@ export default function PayrollPeriods() {
     "No company selected";
 
   const currency =
+    workspaceCurrency ||
     currentCompany?.currency ||
     "USD";
 
@@ -1082,7 +1110,7 @@ export default function PayrollPeriods() {
 
           const response =
             await api.get(
-              `/api/payroll/periods/?company=${companyId}`
+              `/api/payroll/periods/?company=${companyId}&currency=${currency}`
             );
 
           setPeriods(
@@ -1099,7 +1127,7 @@ export default function PayrollPeriods() {
           setRefreshing(false);
         }
       },
-      [companyId]
+      [companyId, currency]
     );
 
 

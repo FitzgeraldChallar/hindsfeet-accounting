@@ -46,6 +46,10 @@ function extractList(data) {
 }
 
 
+function currencyCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function formatMoney(value, currency = "USD") {
   const amount = Number(value || 0);
 
@@ -132,13 +136,14 @@ export default function Purchases() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { currentCompany } = useCompany();
+  const { currentCompany, workspaceCurrency, activeCurrencies } = useCompany();
 
   const companyId =
     currentCompany?.id;
 
-  const companyCurrency =
-    currentCompany?.currency || "USD";
+  const companyCurrency = currencyCode(
+    workspaceCurrency || currentCompany?.currency || "USD"
+  );
 
   const currentPath =
     location.pathname;
@@ -194,6 +199,9 @@ export default function Purchases() {
   const [bills, setBills] =
     useState([]);
 
+  const [products, setProducts] =
+    useState([]);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -232,10 +240,7 @@ export default function Purchases() {
   const [postingId, setPostingId] =
     useState(null);
 
-  const [showPostConfirm, setShowPostConfirm] =
-    useState(false);
-
-  const [billToPost, setBillToPost] =
+  const [billPendingPost, setBillPendingPost] =
     useState(null);
 
 
@@ -262,7 +267,7 @@ export default function Purchases() {
   // ==========================================================
 
   const emptyBillItem = {
-    item_name: "",
+    product: "",
     description: "",
     quantity: "1",
     unit_cost: "",
@@ -273,6 +278,7 @@ export default function Purchases() {
   const emptyBillForm = {
     company: companyId || "",
     supplier: "",
+    currency: companyCurrency,
     bill_number: createBillNumber(),
     bill_date: today(),
     due_date: today(),
@@ -299,6 +305,7 @@ export default function Purchases() {
     if (!companyId) {
       setSuppliers([]);
       setBills([]);
+      setProducts([]);
       setLoading(false);
       return;
     }
@@ -310,6 +317,7 @@ export default function Purchases() {
       const [
         supplierResponse,
         billResponse,
+        productResponse,
       ] = await Promise.all([
         api.get(
           `/api/invoicing/suppliers/?company=${companyId}`
@@ -317,6 +325,10 @@ export default function Purchases() {
 
         api.get(
           `/api/invoicing/supplier-bills/?company=${companyId}`
+        ),
+
+        api.get(
+          `/api/operations/products/?company=${companyId}`
         ),
       ]);
 
@@ -326,6 +338,10 @@ export default function Purchases() {
 
       setBills(
         extractList(billResponse)
+      );
+
+      setProducts(
+        extractList(productResponse)
       );
     } catch (err) {
       setError(
@@ -340,7 +356,7 @@ export default function Purchases() {
 
   useEffect(() => {
     loadData();
-  }, [companyId]);
+  }, [companyId, companyCurrency]);
 
 
   // ==========================================================
@@ -463,6 +479,7 @@ export default function Purchases() {
     setBillForm({
       ...emptyBillForm,
       company: companyId || "",
+      currency: companyCurrency,
       bill_number: createBillNumber(),
       bill_date: today(),
       due_date: today(),
@@ -493,7 +510,7 @@ export default function Purchases() {
 
     setBillForm((previous) => ({
       ...previous,
-      [name]: value,
+      [name]: name === "currency" ? currencyCode(value) : value,
     }));
   };
 
@@ -512,6 +529,38 @@ export default function Purchases() {
         ...items[index],
         [field]: value,
       };
+
+      if (field === "product" && value) {
+        const product =
+          products.find(
+            (item) =>
+              String(item.id) ===
+              String(value)
+          );
+
+        if (product) {
+          items[index].description =
+            product.name || "";
+
+          if (!items[index].unit_cost) {
+            const prices = Array.isArray(product.prices)
+              ? product.prices
+              : Array.isArray(product.product_prices)
+                ? product.product_prices
+                : [];
+            const currencyPrice = prices.find(
+              (price) =>
+                currencyCode(price?.currency) ===
+                currencyCode(billForm.currency || companyCurrency)
+            );
+            if (currencyPrice?.cost_price !== undefined) {
+              items[index].unit_cost = currencyPrice.cost_price;
+            } else if (product.cost_price !== undefined) {
+              items[index].unit_cost = product.cost_price;
+            }
+          }
+        }
+      }
 
       return {
         ...previous,
@@ -651,7 +700,6 @@ export default function Purchases() {
     const invalidItem =
       billForm.items.some(
         (item) =>
-          !item.item_name.trim() ||
           !item.description.trim() ||
           Number(item.quantity) <= 0 ||
           Number(item.unit_cost) < 0
@@ -659,7 +707,7 @@ export default function Purchases() {
 
     if (invalidItem) {
       setError(
-        "Please complete every purchase item with a valid product/item name, description, quantity and unit cost."
+        "Please complete every bill item with a valid description, quantity and unit cost."
       );
       return;
     }
@@ -673,6 +721,9 @@ export default function Purchases() {
         supplier: Number(
           billForm.supplier
         ),
+        currency: currencyCode(
+          billForm.currency || companyCurrency
+        ),
         bill_number:
           billForm.bill_number.trim(),
         bill_date:
@@ -681,9 +732,12 @@ export default function Purchases() {
           billForm.due_date,
         items: billForm.items.map(
           (item) => ({
-            product: null,
+            product:
+              item.product
+                ? Number(item.product)
+                : null,
             description:
-              `${item.item_name.trim()} — ${item.description.trim()}`,
+              item.description.trim(),
             quantity:
               item.quantity,
             unit_cost:
@@ -734,20 +788,24 @@ export default function Purchases() {
   // POST BILL
   // ==========================================================
 
-  const postBill = (bill) => {
-    setBillToPost(bill);
-    setShowPostConfirm(true);
-  };
-
-  const confirmPostBill = async () => {
-    if (!billToPost) {
+  const postBill = async (
+    bill
+  ) => {
+    if (!bill || postingId !== null) {
       return;
     }
 
-    const bill = billToPost;
+    setBillPendingPost(bill);
+    setError("");
+  };
 
-    setShowPostConfirm(false);
-    setBillToPost(null);
+  const confirmPostBill = async () => {
+    if (!billPendingPost || postingId !== null) {
+      return;
+    }
+
+    const bill = billPendingPost;
+    setBillPendingPost(null);
     setPostingId(bill.id);
     setError("");
 
@@ -781,6 +839,12 @@ export default function Purchases() {
       );
     } finally {
       setPostingId(null);
+    }
+  };
+
+  const cancelPostBill = () => {
+    if (postingId === null) {
+      setBillPendingPost(null);
     }
   };
 
@@ -847,6 +911,24 @@ export default function Purchases() {
 
 
   // ==========================================================
+  // CURRENT WORKSPACE CURRENCY
+  // ==========================================================
+
+  const workspaceBills = useMemo(
+    () =>
+      bills.filter(
+        (bill) =>
+          currencyCode(
+            bill?.currency || currentCompany?.currency
+          ) === companyCurrency
+      ),
+    [bills, companyCurrency, currentCompany?.currency]
+  );
+
+
+
+
+  // ==========================================================
   // FILTERED BILLS
   // ==========================================================
 
@@ -855,7 +937,7 @@ export default function Purchases() {
       const query =
         search.trim().toLowerCase();
 
-      return bills.filter(
+      return workspaceBills.filter(
         (bill) => {
           const supplier =
             supplierById[
@@ -883,7 +965,7 @@ export default function Purchases() {
         }
       );
     }, [
-      bills,
+      workspaceBills,
       suppliers,
       supplierById,
       search,
@@ -897,12 +979,12 @@ export default function Purchases() {
 
   const purchaseTransactions =
     useMemo(() => {
-      return bills.filter(
+      return workspaceBills.filter(
         (bill) =>
           bill.status !== "DRAFT" &&
           bill.status !== "VOIDED"
       );
-    }, [bills]);
+    }, [workspaceBills]);
 
 
   // ==========================================================
@@ -930,7 +1012,7 @@ export default function Purchases() {
   const billStats =
     useMemo(() => {
       const totalValue =
-        bills.reduce(
+        workspaceBills.reduce(
           (sum, bill) =>
             sum +
             Number(
@@ -940,7 +1022,7 @@ export default function Purchases() {
         );
 
       const outstanding =
-        bills.reduce(
+        workspaceBills.reduce(
           (sum, bill) =>
             sum +
             Number(
@@ -950,21 +1032,21 @@ export default function Purchases() {
         );
 
       return {
-        total: bills.length,
+        total: workspaceBills.length,
         drafts:
-          bills.filter(
+          workspaceBills.filter(
             (bill) =>
               bill.status === "DRAFT"
           ).length,
         posted:
-          bills.filter(
+          workspaceBills.filter(
             (bill) =>
               bill.status === "POSTED"
           ).length,
         outstanding,
         totalValue,
       };
-    }, [bills]);
+    }, [workspaceBills]);
 
 
   // ==========================================================
@@ -1058,14 +1140,17 @@ export default function Purchases() {
             </button>
           )}
 
-          <button
-            type="button"
-            className="purchases-btn purchases-btn-primary"
-            onClick={openCreateBill}
-          >
-            <Plus size={18} />
-            Create Bill
-          </button>
+          {activeSection ===
+            "bills" && (
+            <button
+              type="button"
+              className="purchases-btn purchases-btn-primary"
+              onClick={openCreateBill}
+            >
+              <Plus size={18} />
+              Create Bill
+            </button>
+          )}
 
         </div>
       </div>
@@ -1132,7 +1217,7 @@ export default function Purchases() {
             </strong>
 
             <span>
-              Record purchases & post bills
+              Supplier bills & posting
             </span>
           </div>
 
@@ -1788,7 +1873,7 @@ export default function Purchases() {
                                   <strong>
                                     {formatMoney(
                                       bill.total_amount,
-                                      companyCurrency
+                                      currencyCode(bill.currency || companyCurrency)
                                     )}
                                   </strong>
                                 </td>
@@ -1929,7 +2014,7 @@ export default function Purchases() {
 
                     <strong>
                       {
-                        bills.filter(
+                        workspaceBills.filter(
                           (bill) =>
                             bill.status ===
                             "POSTED"
@@ -2188,7 +2273,7 @@ export default function Purchases() {
                                     <strong>
                                       {formatMoney(
                                         bill.total_amount,
-                                        companyCurrency
+                                        currencyCode(bill.currency || companyCurrency)
                                       )}
                                     </strong>
                                   </td>
@@ -2473,7 +2558,7 @@ export default function Purchases() {
                 </span>
 
                 <h2>
-                  Create Purchase Bill
+                  Create Supplier Bill
                 </h2>
 
                 <p>
@@ -2631,6 +2716,40 @@ export default function Purchases() {
                     />
                   </div>
 
+                  <div className="purchases-field">
+                    <label>
+                      Bill Currency *
+                    </label>
+
+                    <select
+                      name="currency"
+                      value={
+                        billForm.currency ||
+                        companyCurrency
+                      }
+                      onChange={
+                        handleBillFieldChange
+                      }
+                      required
+                    >
+                      {(Array.isArray(activeCurrencies)
+                        ? activeCurrencies
+                            .filter((item) => item?.is_active !== false)
+                            .map((item) => currencyCode(item?.currency))
+                            .filter(Boolean)
+                        : [companyCurrency]
+                      )
+                        .filter((value, index, array) =>
+                          array.indexOf(value) === index
+                        )
+                        .map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
                 </div>
 
               </div>
@@ -2692,23 +2811,58 @@ export default function Purchases() {
                         <div className="purchases-line-fields">
 
                           <div className="purchases-field">
-  <label>
-    Product / Item *
-  </label>
+                            <label>
+                              Product
+                            </label>
 
-  <input
-    value={item.item_name}
-    onChange={(event) =>
-      handleBillItemChange(
-        index,
-        "item_name",
-        event.target.value
-      )
-    }
-    placeholder="Product, supply or expense item"
-    required
-  />
-</div>
+                            <select
+                              value={
+                                item.product
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                handleBillItemChange(
+                                  index,
+                                  "product",
+                                  event
+                                    .target
+                                    .value
+                                )
+                              }
+                            >
+                              <option value="">
+                                Custom / Expense
+                              </option>
+
+                              {products
+                                .filter(
+                                  (
+                                    product
+                                  ) =>
+                                    product.is_active !==
+                                    false
+                                )
+                                .map(
+                                  (
+                                    product
+                                  ) => (
+                                    <option
+                                      key={
+                                        product.id
+                                      }
+                                      value={
+                                        product.id
+                                      }
+                                    >
+                                      {
+                                        product.name
+                                      }
+                                    </option>
+                                  )
+                                )}
+                            </select>
+                          </div>
 
 
                           <div className="purchases-field purchases-field-description">
@@ -2731,7 +2885,7 @@ export default function Purchases() {
                                     .value
                                 )
                               }
-                              placeholder="Description or details"
+                              placeholder="Item description"
                               required
                             />
                           </div>
@@ -2933,7 +3087,7 @@ export default function Purchases() {
                     <strong>
                       {formatMoney(
                         billTotals.subtotal,
-                        companyCurrency
+                        billForm.currency || companyCurrency
                       )}
                     </strong>
                   </div>
@@ -2992,7 +3146,7 @@ export default function Purchases() {
                     <strong>
                       {formatMoney(
                         billTotals.total,
-                        companyCurrency
+                        billForm.currency || companyCurrency
                       )}
                     </strong>
 
@@ -3035,7 +3189,7 @@ export default function Purchases() {
                       <CheckCircle2
                         size={17}
                       />
-                      Create Draft Purchase
+                      Create Draft Bill
                     </>
                   )}
                 </button>
@@ -3044,71 +3198,6 @@ export default function Purchases() {
 
             </form>
 
-          </div>
-        </div>
-      )}
-
-
-      {/* ======================================================
-          POST PURCHASE CONFIRMATION MODAL
-      ====================================================== */}
-
-      {showPostConfirm && billToPost && (
-        <div
-          className="purchases-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setShowPostConfirm(false);
-              setBillToPost(null);
-            }
-          }}
-        >
-          <div
-            className="purchases-modal purchases-confirm-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="post-purchase-title"
-          >
-            <div className="purchases-confirm-icon">
-              <CheckCircle2 size={25} />
-            </div>
-
-            <div className="purchases-confirm-content">
-              <span className="purchases-modal-eyebrow">
-                Confirm Purchase Posting
-              </span>
-
-              <h2 id="post-purchase-title">
-                Post this purchase?
-              </h2>
-
-              <p>
-                You are about to post purchase <strong>{billToPost.bill_number}</strong>.
-                This will create the Accounts Payable accounting entry.
-              </p>
-            </div>
-
-            <div className="purchases-confirm-actions">
-              <button
-                type="button"
-                className="purchases-btn purchases-btn-secondary"
-                onClick={() => {
-                  setShowPostConfirm(false);
-                  setBillToPost(null);
-                }}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                className="purchases-btn purchases-btn-primary"
-                onClick={confirmPostBill}
-              >
-                <CheckCircle2 size={17} />
-                Post Purchase
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -3198,7 +3287,7 @@ export default function Purchases() {
                   <strong>
                     {formatMoney(
                       selectedBill.total_amount,
-                      companyCurrency
+                      currencyCode(selectedBill.currency || companyCurrency)
                     )}
                   </strong>
                 </div>
@@ -3212,7 +3301,7 @@ export default function Purchases() {
                   <strong>
                     {formatMoney(
                       selectedBill.balance_due,
-                      companyCurrency
+                      currencyCode(selectedBill.currency || companyCurrency)
                     )}
                   </strong>
                 </div>
@@ -3339,21 +3428,30 @@ export default function Purchases() {
                               <td>
                                 {formatMoney(
                                   item.unit_cost,
-                                  companyCurrency
+                                  currencyCode(
+                                    selectedBill.currency ||
+                                    companyCurrency
+                                  )
                                 )}
                               </td>
 
                               <td>
                                 {formatMoney(
                                   item.discount,
-                                  companyCurrency
+                                  currencyCode(
+                                    selectedBill.currency ||
+                                    companyCurrency
+                                  )
                                 )}
                               </td>
 
                               <td>
                                 {formatMoney(
                                   item.tax,
-                                  companyCurrency
+                                  currencyCode(
+                                    selectedBill.currency ||
+                                    companyCurrency
+                                  )
                                 )}
                               </td>
 
@@ -3361,7 +3459,10 @@ export default function Purchases() {
                                 <strong>
                                   {formatMoney(
                                     item.line_total,
-                                    companyCurrency
+                                    currencyCode(
+                                      selectedBill.currency ||
+                                      companyCurrency
+                                    )
                                   )}
                                 </strong>
                               </td>
@@ -3391,7 +3492,10 @@ export default function Purchases() {
                 <strong>
                   {formatMoney(
                     selectedBill.total_amount,
-                    companyCurrency
+                    currencyCode(
+                      selectedBill.currency ||
+                      companyCurrency
+                    )
                   )}
                 </strong>
 
@@ -3434,6 +3538,147 @@ export default function Purchases() {
 
           </div>
         )}
+
+
+      {billPendingPost && (
+        <div
+          className="purchases-modal-backdrop"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              cancelPostBill();
+            }
+          }}
+        >
+          <div
+            className="purchases-modal purchases-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="post-bill-confirm-title"
+          >
+            <div className="purchases-modal-header">
+              <div>
+                <span className="purchases-modal-eyebrow">
+                  POST SUPPLIER BILL
+                </span>
+
+                <h2 id="post-bill-confirm-title">
+                  Confirm Bill Posting
+                </h2>
+
+                <p>
+                  Review this action before creating
+                  the Accounts Payable accounting entry.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="purchases-modal-close"
+                onClick={cancelPostBill}
+                disabled={postingId !== null}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="purchases-confirm-body">
+              <div className="purchases-confirm-icon">
+                <AlertCircle size={22} />
+              </div>
+
+              <div className="purchases-confirm-copy">
+                <h3>
+                  Post{" "}
+                  {billPendingPost.bill_number ||
+                    `Bill #${billPendingPost.id}`}
+                  ?
+                </h3>
+
+                <p>
+                  This will create the Accounts Payable
+                  accounting entry and move the bill out
+                  of Draft status. The action should only
+                  be confirmed when the bill details are
+                  correct.
+                </p>
+              </div>
+            </div>
+
+            <div className="purchases-confirm-summary">
+              <div>
+                <span>Supplier</span>
+                <strong>
+                  {suppliers.find(
+                    (supplier) =>
+                      String(supplier.id) ===
+                      String(
+                        billPendingPost.supplier
+                      )
+                  )?.name || "Unknown supplier"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Bill Currency</span>
+                <strong>
+                  {currencyCode(
+                    billPendingPost.currency ||
+                    companyCurrency
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>Total Amount</span>
+                <strong>
+                  {formatMoney(
+                    billPendingPost.total_amount,
+                    currencyCode(
+                      billPendingPost.currency ||
+                      companyCurrency
+                    )
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            <div className="purchases-confirm-actions">
+              <button
+                type="button"
+                className="purchases-btn purchases-btn-secondary"
+                onClick={cancelPostBill}
+                disabled={postingId !== null}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="purchases-btn purchases-btn-primary"
+                onClick={confirmPostBill}
+                disabled={postingId !== null}
+              >
+                {postingId !== null ? (
+                  <RefreshCw
+                    size={17}
+                    className="purchases-spin"
+                  />
+                ) : (
+                  <CheckCircle2 size={17} />
+                )}
+
+                {postingId !== null
+                  ? "Posting..."
+                  : "Post Bill"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
