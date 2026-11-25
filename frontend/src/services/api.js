@@ -48,9 +48,9 @@ async function request(
     );
 
 
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
-    "Content-Type":
-      "application/json",
+    ...(!isFormData ? { "Content-Type": "application/json" } : {}),
     ...(options.headers || {}),
   };
 
@@ -160,10 +160,60 @@ async function request(
 
 
 // ============================================================
+// AUTHENTICATED FILE DOWNLOAD
+// ============================================================
+
+async function downloadFile(endpoint, retry = true) {
+  const token = localStorage.getItem("access_token");
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (response.status === 401 && retry) {
+    let newToken;
+    try {
+      newToken = await getFreshAccessToken();
+    } catch (refreshError) {
+      logout();
+      throw refreshError;
+    }
+
+    const refreshed = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${newToken}` },
+    });
+    if (!refreshed.ok) {
+      const data = await refreshed.json().catch(() => null);
+      const error = new Error(data?.detail || "Unable to download this file.");
+      error.status = refreshed.status;
+      error.data = data;
+      throw error;
+    }
+    return refreshed.blob();
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const error = new Error(data?.detail || "Unable to download this file.");
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+
+  return response.blob();
+}
+
+
+// ============================================================
 // API METHODS
 // ============================================================
 
 export const api = {
+  download(endpoint) {
+    return downloadFile(endpoint);
+  },
+
   get(
     endpoint,
     options = {}
@@ -189,7 +239,9 @@ export const api = {
         ...options,
         method: "POST",
         body:
-          JSON.stringify(body),
+          (typeof FormData !== "undefined" && body instanceof FormData)
+            ? body
+            : JSON.stringify(body),
       }
     );
   },
@@ -206,7 +258,9 @@ export const api = {
         ...options,
         method: "PUT",
         body:
-          JSON.stringify(body),
+          (typeof FormData !== "undefined" && body instanceof FormData)
+            ? body
+            : JSON.stringify(body),
       }
     );
   },
@@ -223,7 +277,9 @@ export const api = {
         ...options,
         method: "PATCH",
         body:
-          JSON.stringify(body),
+          (typeof FormData !== "undefined" && body instanceof FormData)
+            ? body
+            : JSON.stringify(body),
       }
     );
   },

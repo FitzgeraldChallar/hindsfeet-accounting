@@ -8,6 +8,7 @@ import {
 
 import AppLayout from "./components/layout/AppLayout";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import FeatureRoute from "./components/auth/FeatureRoute";
 
 
 import Login from "./pages/Login";
@@ -39,6 +40,9 @@ import ExpenseReports from "./pages/reports/ExpenseReports";
 
 import AuditActivity from "./pages/AuditActivity";
 import Settings from "./pages/Settings";
+import Subscription from "./pages/Subscription";
+import Support from "./pages/Support";
+import Team from "./pages/Team";
 
 
 // ============================================================
@@ -122,7 +126,7 @@ export default function App() {
             <Route
               path="/sales/*"
               element={
-                <Sales />
+                <FeatureRoute feature="sales_invoicing"><Sales /></FeatureRoute>
               }
             />
 
@@ -134,7 +138,7 @@ export default function App() {
             <Route
               path="/invoicing/*"
               element={
-                <Invoicing />
+                <FeatureRoute feature="sales_invoicing"><Invoicing /></FeatureRoute>
               }
             />
 
@@ -146,7 +150,7 @@ export default function App() {
             <Route
               path="/accounts-receivable/*"
               element={
-                <AccountsReceivable />
+                <FeatureRoute feature="accounts_receivable"><AccountsReceivable /></FeatureRoute>
               }
             />
 
@@ -158,7 +162,7 @@ export default function App() {
             <Route
               path="/purchases/*"
               element={
-                <Purchases />
+                <FeatureRoute feature="purchases_expenses"><Purchases /></FeatureRoute>
               }
             />
 
@@ -170,7 +174,7 @@ export default function App() {
             <Route
               path="/accounts-payable/*"
               element={
-                <AccountsPayable />
+                <FeatureRoute feature="accounts_payable"><AccountsPayable /></FeatureRoute>
               }
             />
 
@@ -182,14 +186,14 @@ export default function App() {
             <Route
               path="/expenses"
               element={
-                <Expenses />
+                <FeatureRoute feature="purchases_expenses"><Expenses /></FeatureRoute>
               }
             />
 
             <Route
               path="/expenses/*"
               element={
-                <ExpenseReports />
+                <FeatureRoute feature="purchases_expenses"><ExpenseReports /></FeatureRoute>
               }
             />
 
@@ -201,7 +205,7 @@ export default function App() {
             <Route
               path="/inventory"
               element={
-                <Inventory />
+                <FeatureRoute feature="inventory"><Inventory /></FeatureRoute>
               }
             />
 
@@ -213,7 +217,7 @@ export default function App() {
             <Route
               path="/banking/*"
               element={
-                <Banking />
+                <FeatureRoute feature="banking"><Banking /></FeatureRoute>
               }
             />
 
@@ -225,7 +229,7 @@ export default function App() {
             <Route
               path="/accounting/*"
               element={
-                <Accounting />
+                <FeatureRoute feature="core_accounting"><Accounting /></FeatureRoute>
               }
             />
 
@@ -237,7 +241,7 @@ export default function App() {
             <Route
               path="/payroll"
               element={
-                <Payroll />
+                <FeatureRoute feature="payroll"><Payroll /></FeatureRoute>
               }
             />
 
@@ -249,7 +253,7 @@ export default function App() {
             <Route
               path="/gas-operations"
               element={
-                <GasOperations />
+                <FeatureRoute feature="gas_operations"><GasOperations /></FeatureRoute>
               }
             />
 
@@ -261,49 +265,49 @@ export default function App() {
             <Route
               path="/reports"
               element={
-                <Reports />
+                <FeatureRoute feature="standard_reports"><Reports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/financial"
               element={
-                <FinancialReports />
+                <FeatureRoute feature="standard_reports"><FinancialReports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/ar"
               element={
-                <ARReports />
+                <FeatureRoute feature="accounts_receivable"><ARReports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/ap"
               element={
-                <APReports />
+                <FeatureRoute feature="accounts_payable"><APReports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/sales"
               element={
-                <SalesReports />
+                <FeatureRoute feature="sales_invoicing"><SalesReports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/purchases"
               element={
-                <PurchaseReports />
+                <FeatureRoute feature="accounts_payable"><PurchaseReports /></FeatureRoute>
               }
             />
 
             <Route
               path="/reports/expenses"
               element={
-                <ExpenseReports />
+                <FeatureRoute feature="purchases_expenses"><ExpenseReports /></FeatureRoute>
               }
             />
 
@@ -315,7 +319,7 @@ export default function App() {
             <Route
               path="/audit"
               element={
-                <AuditActivity />
+                <FeatureRoute feature="core_accounting"><AuditActivity /></FeatureRoute>
               }
             />
 
@@ -323,6 +327,21 @@ export default function App() {
             {/* ==================================================
                 SETTINGS
             ================================================== */}
+
+            <Route
+              path="/subscription"
+              element={<Subscription />}
+            />
+
+            <Route
+              path="/team"
+              element={<Team />}
+            />
+
+            <Route
+              path="/support"
+              element={<Support />}
+            />
 
             <Route
               path="/settings"

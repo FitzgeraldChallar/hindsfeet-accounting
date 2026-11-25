@@ -50676,3 +50676,14 @@
     text-align: left;
   }
 }
+
+
+/* Subscription/support ticket priority label */
+.support-ticket-priority {
+  flex: 0 0 auto;
+  align-self: center;
+  color: #667085;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}

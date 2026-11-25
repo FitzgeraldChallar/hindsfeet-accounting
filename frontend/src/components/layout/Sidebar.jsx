@@ -17,6 +17,8 @@ import {
   Wallet,
   Fuel,
   Gauge,
+  LifeBuoy,
+  UserRoundCog,
 } from "lucide-react";
 
 import { useState } from "react";
@@ -38,6 +40,7 @@ const navigation = [
   },
   {
     label: "Sales",
+    feature: "sales_invoicing",
     icon: ShoppingCart,
     children: [
       { label: "Customers", path: "/sales/customers" },
@@ -47,6 +50,7 @@ const navigation = [
   },
   {
     label: "Invoicing",
+    feature: "sales_invoicing",
     icon: Receipt,
     children: [
       { label: "Invoices", path: "/invoicing/invoices" },
@@ -57,6 +61,7 @@ const navigation = [
   },
   {
     label: "Accounts Receivable",
+    feature: "accounts_receivable",
     icon: HandCoins,
     children: [
       { label: "AR Dashboard", path: "/accounts-receivable" },
@@ -69,6 +74,7 @@ const navigation = [
   },
   {
     label: "Purchases",
+    feature: "purchases_expenses",
     icon: ShoppingCart,
     children: [
       { label: "Suppliers", path: "/purchases/suppliers" },
@@ -78,6 +84,7 @@ const navigation = [
   },
   {
     label: "Accounts Payable",
+    feature: "accounts_payable",
     icon: CreditCard,
     children: [
       { label: "AP Dashboard", path: "/accounts-payable" },
@@ -90,16 +97,19 @@ const navigation = [
   },
   {
     label: "Expenses",
+    feature: "purchases_expenses",
     icon: Wallet,
     path: "/expenses",
   },
   {
     label: "Inventory",
+    feature: "inventory",
     icon: Package,
     path: "/inventory",
   },
   {
   label: "Banking",
+  feature: "banking",
   icon: Landmark,
   children: [
     {
@@ -142,6 +152,7 @@ const navigation = [
 },
   {
     label: "Accounting",
+    feature: "core_accounting",
     icon: Calculator,
     children: [
       { label: "Chart of Accounts", path: "/accounting/chart-of-accounts" },
@@ -155,34 +166,53 @@ const navigation = [
   },
   {
     label: "Payroll",
+    feature: "payroll",
     icon: Users,
     path: "/payroll",
   },
   {
     label: "Gas Operations",
+    feature: "gas_operations",
     icon: Fuel,
     path: "/gas-operations",
     gasOnly: true,
   },
   {
     label: "Reports",
+    feature: "standard_reports",
     icon: FileBarChart,
     children: [
       { label: "Financial Reports", path: "/reports/financial" },
-      { label: "AR Reports", path: "/reports/ar" },
-      { label: "AP Reports", path: "/reports/ap" },
-      { label: "Sales Reports", path: "/reports/sales" },
-      { label: "Purchase Reports", path: "/reports/purchases" },
-      { label: "Expense Reports", path: "/reports/expenses" },
-      { label: "Inventory Reports", path: "/reports/inventory" },
-      { label: "Payroll Reports", path: "/reports/payroll" },
-      { label: "Gas Reports", path: "/reports/gas", gasOnly: true },
+      { label: "AR Reports", path: "/reports/ar", feature: "accounts_receivable" },
+      { label: "AP Reports", path: "/reports/ap", feature: "accounts_payable" },
+      { label: "Sales Reports", path: "/reports/sales", feature: "sales_invoicing" },
+      { label: "Purchase Reports", path: "/reports/purchases", feature: "accounts_payable" },
+      { label: "Expense Reports", path: "/reports/expenses", feature: "purchases_expenses" },
+      { label: "Inventory Reports", path: "/reports/inventory", feature: "inventory" },
+      { label: "Payroll Reports", path: "/reports/payroll", feature: "payroll" },
+      { label: "Gas Reports", path: "/reports/gas", gasOnly: true, feature: "gas_operations" },
     ],
   },
   {
     label: "Audit / Activity",
+    feature: "core_accounting",
     icon: Activity,
     path: "/audit",
+  },
+  {
+    label: "Team Members",
+    icon: UserRoundCog,
+    path: "/team",
+  },
+  {
+    label: "Email Support",
+    icon: LifeBuoy,
+    path: "/support",
+  },
+  {
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/subscription",
   },
   {
     label: "Settings",
@@ -191,18 +221,28 @@ const navigation = [
   },
 ];
 
-function SidebarItem({ item, isGasStation }) {
+function SidebarItem({ item, isGasStation, features, subscriptionActive }) {
   const [open, setOpen] = useState(false);
 
   if (item.gasOnly && !isGasStation) {
     return null;
   }
 
+  if (item.feature && (!subscriptionActive || !features?.[item.feature])) {
+    return null;
+  }
+
   const visibleChildren = item.children?.filter(
-    (child) => !child.gasOnly || isGasStation
+    (child) =>
+      (!child.gasOnly || isGasStation) &&
+      (!child.feature || (subscriptionActive && features?.[child.feature]))
   );
 
   const Icon = item.icon;
+
+  if (item.children && visibleChildren.length === 0) {
+    return null;
+  }
 
   if (!visibleChildren) {
     return (
@@ -265,8 +305,9 @@ function SidebarItem({ item, isGasStation }) {
 }
 
 export default function Sidebar() {
-  const { currentCompany } = useCompany();
+  const { currentCompany, subscription, subscriptionFeatures } = useCompany();
 
+  const subscriptionActive = Boolean(subscription?.is_currently_active);
   const isGasStation =
     String(currentCompany?.business_type || "").toUpperCase() ===
     "GAS_STATION";
@@ -296,6 +337,8 @@ export default function Sidebar() {
             key={item.label}
             item={item}
             isGasStation={isGasStation}
+            features={subscriptionFeatures}
+            subscriptionActive={subscriptionActive}
           />
         ))}
       </nav>

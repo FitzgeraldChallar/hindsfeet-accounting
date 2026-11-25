@@ -212,7 +212,7 @@ export default function GasReports() {
   const [refreshing, setRefreshing] =
     useState(false);
 
-  const [error, setError] =
+  const [error, setError] = 
     useState("");
 
   const [search, setSearch] =
