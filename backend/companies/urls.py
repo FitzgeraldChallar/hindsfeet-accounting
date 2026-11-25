@@ -9,6 +9,8 @@ from .views import (
     CompanyExchangeRateListCreateView,
     CompanyListCreateView,
     CompanyWorkspaceView,
+    CompanyMemberListCreateView,
+    CompanyMemberDetailView,
 )
 
 
@@ -22,6 +24,16 @@ urlpatterns = [
         "<int:pk>/",
         CompanyDetailView.as_view(),
         name="company-detail",
+    ),
+    path(
+        "<int:pk>/members/",
+        CompanyMemberListCreateView.as_view(),
+        name="company-members",
+    ),
+    path(
+        "<int:pk>/members/<int:membership_id>/",
+        CompanyMemberDetailView.as_view(),
+        name="company-member-detail",
     ),
     path(
         "<int:pk>/delete/",

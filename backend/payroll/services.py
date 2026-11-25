@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 
 from companies.currency_service import CompanyCurrencyService
+from subscriptions.models import Subscription
 
 from .models import (
     Employee,
@@ -44,7 +45,8 @@ class PayrollService:
     - Percentage earnings/deductions are calculated against
       monthly basic salary.
     - Unpaid absence reduces gross pay.
-    - PAYE is calculated automatically from taxable income.
+    - LRA PAYE tax-table automation is available on Complete only.
+    - Lower-tier payroll users can enter tax deductions manually.
     - Employee NASSCORP is calculated automatically from gross pay.
     - Employer NASSCORP is calculated automatically from gross pay.
     - Payroll records are snapshots of the final calculation.
@@ -416,6 +418,13 @@ class PayrollService:
                 "Payroll exchange rate must be greater than zero."
             )
 
+        subscription = Subscription.objects.select_related("plan").filter(
+            company=company
+        ).first()
+        automation_available = bool(
+            subscription and subscription.has_feature("lra_tax_automation")
+        )
+
         if monthly_taxable_income <= Decimal("0.00"):
             return {
                 "monthly_taxable_income": Decimal("0.00"),
@@ -423,10 +432,9 @@ class PayrollService:
                 "annual_taxable_income": Decimal("0.00"),
                 "annual_tax": Decimal("0.00"),
                 "monthly_tax": Decimal("0.00"),
-                "monthly_tax_in_payroll_currency": Decimal(
-                    "0.00"
-                ),
+                "monthly_tax_in_payroll_currency": Decimal("0.00"),
                 "tax_band": None,
+                "automation_available": automation_available,
             }
 
         monthly_taxable_income_lrd = money(
@@ -438,6 +446,21 @@ class PayrollService:
             monthly_taxable_income_lrd
             * Decimal("12")
         )
+
+        if not automation_available:
+            # Payroll is available on Plus, but automated LRA tax-table
+            # calculations are a Complete entitlement. Lower tiers can
+            # still enter their tax deductions manually.
+            return {
+                "monthly_taxable_income": monthly_taxable_income,
+                "monthly_taxable_income_lrd": monthly_taxable_income_lrd,
+                "annual_taxable_income": annual_taxable_income,
+                "annual_tax": Decimal("0.00"),
+                "monthly_tax": Decimal("0.00"),
+                "monthly_tax_in_payroll_currency": Decimal("0.00"),
+                "tax_band": None,
+                "automation_available": False,
+            }
 
         bands = list(
             PayrollTaxBand.objects.filter(
@@ -510,6 +533,7 @@ class PayrollService:
                 monthly_tax_in_payroll_currency
             ),
             "tax_band": matching_band,
+            "automation_available": True,
         }
 
     @staticmethod

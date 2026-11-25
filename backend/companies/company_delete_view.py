@@ -15,7 +15,7 @@ class CompanyDeleteView(APIView):
 
     @staticmethod
     def _can_delete(user, company):
-        if user.is_superuser or user.role in {"OWNER", "ADMIN"}:
+        if user.is_superuser:
             return True
         return CompanyMembership.objects.filter(
             user=user,

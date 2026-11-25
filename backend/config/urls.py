@@ -23,6 +23,9 @@ urlpatterns = [
         name="token-refresh",
     ),
 
+    # Subscriptions and customer support
+    path("api/subscriptions/", include("subscriptions.urls")),
+
     # Companies
     path(
         "api/companies/",

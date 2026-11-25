@@ -2196,39 +2196,73 @@ def cash_flow_pdf(
         reconciliation_table
     )
 
-    # --------------------------------------------------------
+        # --------------------------------------------------------
     # Reconciliation status
     # --------------------------------------------------------
 
     elements.append(
-        Spacer(
-            1,
-            4 * mm,
-        )
+        Spacer(1, 4 * mm)
     )
 
-    status = (
-        "RECONCILED"
-        if report["is_reconciled"]
-        else "NOT RECONCILED"
+    # Support both report formats:
+    # - Older format containing is_reconciled
+    # - Newer format containing reconciliation_difference
+
+    reconciliation_difference = report.get(
+        "reconciliation_difference"
     )
+
+    if reconciliation_difference is None:
+        actual_closing_cash = report.get(
+            "actual_closing_cash"
+        )
+        closing_cash_balance = report.get(
+            "closing_cash_balance"
+        )
+
+        if (
+            actual_closing_cash is not None
+            and closing_cash_balance is not None
+        ):
+            reconciliation_difference = (
+                actual_closing_cash
+                - closing_cash_balance
+            )
+
+    is_reconciled = report.get("is_reconciled")
+
+    if is_reconciled is None:
+        if reconciliation_difference is not None:
+            is_reconciled = (
+                reconciliation_difference == 0
+            )
+
+    if is_reconciled is True:
+        status = "RECONCILED"
+    elif is_reconciled is False:
+        status = "NOT RECONCILED"
+    else:
+        status = "RECONCILIATION NOT AVAILABLE"
 
     elements.append(
         Paragraph(
             (
-                f"Cash Flow Reconciliation: "
+                "Cash Flow Reconciliation: "
                 f"<b>{status}</b>"
             ),
             styles["NormalSmall"],
         )
     )
 
-    if not report["is_reconciled"]:
+    if (
+        is_reconciled is False
+        and reconciliation_difference is not None
+    ):
         elements.append(
             Paragraph(
                 (
                     "Reconciliation Difference: "
-                    f"{money(report['reconciliation_difference'])}"
+                    f"{money(reconciliation_difference)}"
                 ),
                 styles["NormalSmall"],
             )

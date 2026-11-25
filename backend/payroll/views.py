@@ -52,9 +52,6 @@ def user_can_access_company(user, company):
     if user.is_superuser:
         return True
 
-    if user.role in ["OWNER", "ADMIN"]:
-        return True
-
     return CompanyMembership.objects.filter(
         user=user,
         company=company,
@@ -97,10 +94,7 @@ class EmployeeListCreateView(generics.ListCreateAPIView):
 
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -153,10 +147,7 @@ class EmployeeDetailView(generics.RetrieveUpdateAPIView):
             "created_by",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -184,10 +175,7 @@ class PayrollPeriodListCreateView(
         company_id = self.request.query_params.get("company")
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(company_id=company_id)
             if currency:
@@ -243,10 +231,7 @@ class PayrollPeriodDetailView(
             "created_by",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -272,10 +257,7 @@ class PayrollEarningTypeListCreateView(
 
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -330,10 +312,7 @@ class PayrollEarningListCreateView(
 
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     payroll_period__company_id=company_id
@@ -388,10 +367,7 @@ class PayrollDeductionTypeListCreateView(
 
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -446,10 +422,7 @@ class PayrollDeductionListCreateView(
 
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     payroll_period__company_id=company_id
@@ -498,7 +471,7 @@ class PayrollTaxBandListCreateView(generics.ListCreateAPIView):
         queryset = PayrollTaxBand.objects.select_related("company")
         company_id = self.request.query_params.get("company")
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(company_id=company_id)
             return queryset
@@ -529,7 +502,7 @@ class PayrollTaxBandDetailView(generics.RetrieveUpdateAPIView):
         user = self.request.user
         queryset = PayrollTaxBand.objects.select_related("company")
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -554,7 +527,7 @@ class PayrollAbsenceListCreateView(generics.ListCreateAPIView):
         period_id = self.request.query_params.get("period")
         employee_id = self.request.query_params.get("employee")
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     payroll_period__company_id=company_id
@@ -610,7 +583,7 @@ class PayrollAbsenceDetailView(generics.RetrieveUpdateAPIView):
             "employee",
         )
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -649,10 +622,7 @@ class PayrollRecordListView(generics.ListAPIView):
         period_id = self.request.query_params.get("period")
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     payroll_period__company_id=company_id
@@ -706,10 +676,7 @@ class PayrollRecordDetailView(
             "deduction_lines",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1809,10 +1776,7 @@ class PayrollRemittanceListCreateView(
         period_id = self.request.query_params.get("period")
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     payroll_period__company_id=company_id

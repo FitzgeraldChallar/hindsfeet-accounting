@@ -4,6 +4,7 @@ from django.test import TestCase
 
 from accounts.models import User
 from companies.models import Company, CompanyCurrency
+from subscriptions.models import Plan, Subscription
 
 from .models import Employee, PayrollPeriod, PayrollTaxBand
 from .services import PayrollService
@@ -45,6 +46,7 @@ class PayrollMultiCurrencyTests(TestCase):
             pay_date="2026-09-30",
             currency=currency,
             exchange_rate=Decimal("1.000000"),
+            created_by=self.user,
         )
 
     def test_same_date_range_can_have_usd_and_lrd_payroll_periods(self):
@@ -94,7 +96,25 @@ class PayrollMultiCurrencyTests(TestCase):
         self.assertEqual(usd_ids, {usd_employee.id})
         self.assertEqual(lrd_ids, {lrd_employee.id})
 
+    def test_lra_tax_table_automation_is_not_applied_without_complete_entitlement(self):
+        result = PayrollService.calculate_paye(
+            company=self.company,
+            monthly_taxable_income=Decimal("10000.00"),
+            exchange_rate=Decimal("1.000000"),
+        )
+
+        self.assertFalse(result["automation_available"])
+        self.assertEqual(
+            result["monthly_tax_in_payroll_currency"],
+            Decimal("0.00"),
+        )
+
     def test_lrd_paye_is_calculated_directly_in_lrd(self):
+        subscription = Subscription.objects.get(company=self.company)
+        subscription.plan = Plan.objects.get(code=Plan.Code.COMPLETE)
+        subscription.status = Subscription.Status.ACTIVE
+        subscription.save()
+
         PayrollTaxBand.objects.create(
             company=self.company,
             name="0 to 70,000",

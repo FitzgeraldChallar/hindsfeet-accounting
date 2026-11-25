@@ -1,4 +1,5 @@
 from django.urls import path
+from subscriptions.permissions import feature_view
 
 from .views import (
     InventoryListView,
@@ -31,37 +32,37 @@ urlpatterns = [
 
     path(
         "categories/",
-        ProductCategoryListCreateView.as_view(),
+        feature_view(ProductCategoryListCreateView, "sales_invoicing"),
         name="product-category-list-create",
     ),
 
     path(
         "products/",
-        ProductListCreateView.as_view(),
+        feature_view(ProductListCreateView, "sales_invoicing"),
         name="product-list-create",
     ),
 
     path(
         "products/prices/",
-        ProductPriceListCreateView.as_view(),
+        feature_view(ProductPriceListCreateView, "sales_invoicing"),
         name="product-price-list-create",
     ),
 
     path(
        "products/<int:pk>/",
-       ProductDetailView.as_view(),
+       feature_view(ProductDetailView, "sales_invoicing"),
        name="product-detail",
     ),
 
     path(
         "inventory/",
-        InventoryListView.as_view(),
+        feature_view(InventoryListView, "inventory"),
         name="inventory-list",
     ),
 
     path(
        "inventory/transactions/",
-       InventoryTransactionListCreateView.as_view(),
+       feature_view(InventoryTransactionListCreateView, "inventory"),
        name="inventory-transaction-list-create",
    ),
 
@@ -71,19 +72,19 @@ urlpatterns = [
 
     path(
         "sales/",
-        SaleListView.as_view(),
+        feature_view(SaleListView, "sales_invoicing"),
         name="sale-list",
     ),
 
     path(
         "sales/create/",
-        CreateSaleView.as_view(),
+        feature_view(CreateSaleView, "sales_invoicing"),
         name="sale-create",
     ),
 
     path(
         "sales/<int:pk>/",
-        SaleDetailView.as_view(),
+        feature_view(SaleDetailView, "sales_invoicing"),
         name="sale-detail",
     ),
 
@@ -93,13 +94,13 @@ urlpatterns = [
 
     path(
         "pump-attendants/",
-        PumpAttendantListCreateView.as_view(),
+        feature_view(PumpAttendantListCreateView, "gas_operations"),
         name="pump-attendant-list-create",
     ),
 
     path(
         "pump-attendants/<int:pk>/",
-        PumpAttendantDetailView.as_view(),
+        feature_view(PumpAttendantDetailView, "gas_operations"),
         name="pump-attendant-detail",
     ),
 
@@ -109,13 +110,13 @@ urlpatterns = [
 
     path(
         "fuel-pumps/",
-        FuelPumpListCreateView.as_view(),
+        feature_view(FuelPumpListCreateView, "gas_operations"),
         name="fuel-pump-list-create",
     ),
 
     path(
         "fuel-pumps/<int:pk>/",
-        FuelPumpDetailView.as_view(),
+        feature_view(FuelPumpDetailView, "gas_operations"),
         name="fuel-pump-detail",
     ),
 
@@ -125,19 +126,19 @@ urlpatterns = [
 
     path(
         "pump-sales/",
-        PumpSaleListView.as_view(),
+        feature_view(PumpSaleListView, "gas_operations"),
         name="pump-sale-list",
     ),
 
     path(
         "pump-sales/create/",
-        CreatePumpSaleView.as_view(),
+        feature_view(CreatePumpSaleView, "gas_operations"),
         name="pump-sale-create",
     ),
 
     path(
         "pump-sales/<int:pk>/",
-        PumpSaleDetailView.as_view(),
+        feature_view(PumpSaleDetailView, "gas_operations"),
         name="pump-sale-detail",
     ),
 ]

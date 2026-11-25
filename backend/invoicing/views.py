@@ -35,12 +35,6 @@ def user_can_access_company(user, company):
     if user.is_superuser:
         return True
 
-    if user.role in [
-        "OWNER",
-        "ADMIN",
-    ]:
-        return True
-
     return CompanyMembership.objects.filter(
         user=user,
         company=company,
@@ -90,10 +84,7 @@ class CustomerListCreateView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     company_id=company_id
@@ -143,10 +134,7 @@ class CustomerDetailView(
             "company",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -180,10 +168,7 @@ class SupplierListCreateView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     company_id=company_id
@@ -233,10 +218,7 @@ class SupplierDetailView(
             "company",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -286,10 +268,7 @@ class InvoiceListView(
 
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     company_id=company_id
@@ -339,10 +318,7 @@ class InvoiceDetailView(
             )
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -674,10 +650,7 @@ class CustomerPaymentListView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     invoice__company_id=company_id
@@ -811,10 +784,7 @@ class SupplierBillListView(
 
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     company_id=company_id
@@ -863,10 +833,7 @@ class SupplierBillDetailView(
             )
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1070,10 +1037,7 @@ class SupplierPaymentListView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     bill__company_id=company_id

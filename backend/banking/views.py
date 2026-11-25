@@ -30,12 +30,6 @@ def user_can_access_company(user, company):
     if user.is_superuser:
         return True
 
-    if user.role in [
-        "OWNER",
-        "ADMIN",
-    ]:
-        return True
-
     return CompanyMembership.objects.filter(
         user=user,
         company=company,
@@ -117,10 +111,7 @@ class BankAccountListCreateView(
 
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(company_id=company_id)
             if currency:
@@ -194,10 +185,7 @@ class BankAccountDetailView(
             )
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -289,10 +277,7 @@ class BankTransactionListView(
             )
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(
                     company_id=company_id

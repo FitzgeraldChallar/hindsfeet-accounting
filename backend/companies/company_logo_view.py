@@ -6,7 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Company
+from .models import Company, CompanyMembership
 
 
 ALLOWED_LOGO_TYPES = {
@@ -17,11 +17,15 @@ ALLOWED_LOGO_TYPES = {
 MAX_LOGO_SIZE = 5 * 1024 * 1024
 
 
-def user_can_manage_company_branding(user):
-    return bool(
-        user.is_superuser
-        or getattr(user, "role", None) in ["OWNER", "ADMIN"]
-    )
+def user_can_manage_company_branding(user, company):
+    if user.is_superuser:
+        return True
+    return CompanyMembership.objects.filter(
+        user=user,
+        company=company,
+        is_active=True,
+        role__in=["OWNER", "ADMIN"],
+    ).exists()
 
 
 def company_payload(request, company):
@@ -65,7 +69,7 @@ class CompanyLogoView(APIView):
     def get_company(self, request, pk):
         company = get_object_or_404(Company, pk=pk)
 
-        if not user_can_manage_company_branding(request.user):
+        if not user_can_manage_company_branding(request.user, company):
             raise PermissionDenied(
                 "Only a company owner or administrator can manage company branding."
             )

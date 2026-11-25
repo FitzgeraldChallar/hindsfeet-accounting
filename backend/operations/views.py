@@ -46,12 +46,6 @@ def user_can_access_company(user, company):
     if user.is_superuser:
         return True
 
-    if user.role in [
-        "OWNER",
-        "ADMIN",
-    ]:
-        return True
-
     return CompanyMembership.objects.filter(
         user=user,
         company=company,
@@ -84,10 +78,7 @@ class ProductCategoryListCreateView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -148,10 +139,7 @@ class ProductListCreateView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -267,10 +255,7 @@ class ProductDetailView(
             "inventory",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -460,10 +445,7 @@ class InventoryListView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -505,10 +487,7 @@ class InventoryTransactionListCreateView(
             "company"
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 return queryset.filter(
                     company_id=company_id
@@ -611,10 +590,7 @@ class SaleListView(
 
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(company_id=company_id)
             if currency:
@@ -785,10 +761,7 @@ class SaleDetailView(
             "items__product",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -925,10 +898,7 @@ class PumpAttendantListCreateView(
                 company_id=company_id
             )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -965,10 +935,7 @@ class PumpAttendantDetailView(
             "company",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1046,10 +1013,7 @@ class FuelPumpListCreateView(
                 company_id=company_id
             )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1086,10 +1050,7 @@ class FuelPumpDetailView(
             "company",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1166,10 +1127,7 @@ class PumpSaleListView(
         )
         currency = self.request.query_params.get("currency")
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             if company_id:
                 queryset = queryset.filter(company_id=company_id)
             if currency:
@@ -1414,10 +1372,7 @@ class PumpSaleDetailView(
             "created_by",
         )
 
-        if user.is_superuser or user.role in [
-            "OWNER",
-            "ADMIN",
-        ]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -1475,7 +1430,7 @@ class ProductPriceListCreateView(generics.ListCreateAPIView):
             qs = qs.filter(product_id=product_id)
         if currency:
             qs = qs.filter(currency=currency.upper())
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             return qs
         return qs.filter(product__company__memberships__user=user, product__company__memberships__is_active=True).distinct()
 

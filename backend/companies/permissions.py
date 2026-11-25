@@ -4,18 +4,11 @@ from .models import CompanyMembership
 
 
 class IsCompanyMember(BasePermission):
-    """
-    Allows access only when the authenticated user
-    has an active membership in the requested company.
-    """
+    """Allow only superusers or users with an active membership in this company."""
 
     def has_object_permission(self, request, view, obj):
         if request.user.is_superuser:
             return True
-
-        if request.user.role in ["OWNER", "ADMIN"]:
-            return True
-
         return CompanyMembership.objects.filter(
             user=request.user,
             company=obj,

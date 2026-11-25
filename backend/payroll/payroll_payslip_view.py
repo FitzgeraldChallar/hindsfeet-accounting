@@ -67,9 +67,6 @@ class PayrollPayslipView(APIView):
         if user.is_superuser:
             return True
 
-        if user.role in ["OWNER", "ADMIN"]:
-            return True
-
         return CompanyMembership.objects.filter(
             user=user,
             company=company,

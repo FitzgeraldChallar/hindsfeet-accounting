@@ -173,6 +173,16 @@ class CompanyMembershipSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    username = serializers.CharField(
+        source="user.username",
+        read_only=True,
+    )
+
+    email = serializers.EmailField(
+        source="user.email",
+        read_only=True,
+    )
+
     company_name = serializers.CharField(
         source="company.name",
         read_only=True,
@@ -184,6 +194,8 @@ class CompanyMembershipSerializer(serializers.ModelSerializer):
             "id",
             "user",
             "user_name",
+            "username",
+            "email",
             "company",
             "company_name",
             "role",
@@ -193,6 +205,8 @@ class CompanyMembershipSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "user_name",
+            "username",
+            "email",
             "company_name",
             "joined_at",
         ]

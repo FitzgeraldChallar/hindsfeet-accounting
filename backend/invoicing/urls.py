@@ -1,4 +1,5 @@
 from django.urls import path
+from subscriptions.permissions import feature_view
 
 from .views import (
     CreateCustomerPaymentView,
@@ -29,13 +30,13 @@ urlpatterns = [
 
     path(
         "customers/",
-        CustomerListCreateView.as_view(),
+        feature_view(CustomerListCreateView, "sales_invoicing"),
         name="customer-list-create",
     ),
 
     path(
         "customers/<int:pk>/",
-        CustomerDetailView.as_view(),
+        feature_view(CustomerDetailView, "sales_invoicing"),
         name="customer-detail",
     ),
 
@@ -45,37 +46,37 @@ urlpatterns = [
 
     path(
         "invoices/",
-        InvoiceListView.as_view(),
+        feature_view(InvoiceListView, "sales_invoicing"),
         name="invoice-list",
     ),
 
     path(
         "invoices/create/",
-        CreateInvoiceView.as_view(),
+        feature_view(CreateInvoiceView, "sales_invoicing"),
         name="invoice-create",
     ),
 
     path(
         "invoices/<int:pk>/",
-        InvoiceDetailView.as_view(),
+        feature_view(InvoiceDetailView, "sales_invoicing"),
         name="invoice-detail",
     ),
 
     path(
         "invoices/<int:pk>/pdf/",
-        InvoicePDFView.as_view(),
+        feature_view(InvoicePDFView, "sales_invoicing"),
         name="invoice-pdf",
     ),
 
     path(
         "invoices/from-sale/",
-        CreateInvoiceFromSaleView.as_view(),
+        feature_view(CreateInvoiceFromSaleView, "sales_invoicing"),
         name="invoice-from-sale",
     ),
 
     path(
         "invoices/<int:pk>/issue/",
-        IssueInvoiceView.as_view(),
+        feature_view(IssueInvoiceView, "sales_invoicing"),
         name="invoice-issue",
     ),
 
@@ -85,13 +86,13 @@ urlpatterns = [
 
     path(
         "customer-payments/",
-        CustomerPaymentListView.as_view(),
+        feature_view(CustomerPaymentListView, "sales_invoicing"),
         name="customer-payment-list",
     ),
 
     path(
         "customer-payments/create/",
-        CreateCustomerPaymentView.as_view(),
+        feature_view(CreateCustomerPaymentView, "sales_invoicing"),
         name="customer-payment-create",
     ),
 
@@ -101,13 +102,13 @@ urlpatterns = [
 
     path(
         "suppliers/",
-        SupplierListCreateView.as_view(),
+        feature_view(SupplierListCreateView, "purchases_expenses"),
         name="supplier-list-create",
     ),
 
     path(
         "suppliers/<int:pk>/",
-        SupplierDetailView.as_view(),
+        feature_view(SupplierDetailView, "purchases_expenses"),
         name="supplier-detail",
     ),
 
@@ -117,25 +118,25 @@ urlpatterns = [
 
     path(
         "supplier-bills/",
-        SupplierBillListView.as_view(),
+        feature_view(SupplierBillListView, "purchases_expenses"),
         name="supplier-bill-list",
     ),
 
     path(
         "supplier-bills/create/",
-        CreateSupplierBillView.as_view(),
+        feature_view(CreateSupplierBillView, "purchases_expenses"),
         name="supplier-bill-create",
     ),
 
     path(
         "supplier-bills/<int:pk>/",
-        SupplierBillDetailView.as_view(),
+        feature_view(SupplierBillDetailView, "purchases_expenses"),
         name="supplier-bill-detail",
     ),
 
     path(
         "supplier-bills/<int:pk>/post/",
-        PostSupplierBillView.as_view(),
+        feature_view(PostSupplierBillView, "purchases_expenses"),
         name="supplier-bill-post",
     ),
 
@@ -145,13 +146,13 @@ urlpatterns = [
 
     path(
         "supplier-payments/",
-        SupplierPaymentListView.as_view(),
+        feature_view(SupplierPaymentListView, "accounts_payable"),
         name="supplier-payment-list",
     ),
 
     path(
         "supplier-payments/create/",
-        CreateSupplierPaymentView.as_view(),
+        feature_view(CreateSupplierPaymentView, "accounts_payable"),
         name="supplier-payment-create",
     ),
 ]

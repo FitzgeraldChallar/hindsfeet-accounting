@@ -1,4 +1,5 @@
 from django.urls import path
+from subscriptions.permissions import feature_view
 
 from .views import (
     BankAccountListCreateView,
@@ -21,19 +22,19 @@ urlpatterns = [
 
     path(
         "accounts/",
-        BankAccountListCreateView.as_view(),
+        feature_view(BankAccountListCreateView, "banking"),
         name="bank-account-list-create",
     ),
 
     path(
         "accounts/<int:pk>/",
-        BankAccountDetailView.as_view(),
+        feature_view(BankAccountDetailView, "banking"),
         name="bank-account-detail",
     ),
 
     path(
         "accounts/<int:pk>/summary/",
-        BankAccountSummaryView.as_view(),
+        feature_view(BankAccountSummaryView, "banking"),
         name="bank-account-summary",
     ),
 
@@ -43,7 +44,7 @@ urlpatterns = [
 
     path(
         "transactions/",
-        BankTransactionListView.as_view(),
+        feature_view(BankTransactionListView, "banking"),
         name="bank-transaction-list",
     ),
 
@@ -53,37 +54,37 @@ urlpatterns = [
 
     path(
         "deposits/",
-        BankDepositCreateView.as_view(),
+        feature_view(BankDepositCreateView, "banking"),
         name="bank-deposit-create",
     ),
 
     path(
         "withdrawals/",
-        BankWithdrawalCreateView.as_view(),
+        feature_view(BankWithdrawalCreateView, "banking"),
         name="bank-withdrawal-create",
     ),
 
     path(
         "fees/",
-        BankFeeCreateView.as_view(),
+        feature_view(BankFeeCreateView, "banking"),
         name="bank-fee-create",
     ),
 
     path(
         "interest/",
-        BankInterestCreateView.as_view(),
+        feature_view(BankInterestCreateView, "banking"),
         name="bank-interest-create",
     ),
 
     path(
         "adjustments/",
-        BankAdjustmentCreateView.as_view(),
+        feature_view(BankAdjustmentCreateView, "banking"),
         name="bank-adjustment-create",
     ),
 
     path(
         "transfers/",
-        BankTransferCreateView.as_view(),
+        feature_view(BankTransferCreateView, "banking"),
         name="bank-transfer-create",
     ),
 ]

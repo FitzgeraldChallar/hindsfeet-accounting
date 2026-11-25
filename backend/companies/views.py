@@ -26,9 +26,6 @@ def user_can_access_company(user, company):
     if user.is_superuser:
         return True
 
-    if user.role in ["OWNER", "ADMIN"]:
-        return True
-
     return CompanyMembership.objects.filter(
         user=user,
         company=company,
@@ -38,9 +35,6 @@ def user_can_access_company(user, company):
 
 def user_can_manage_company_configuration(user, company):
     if user.is_superuser:
-        return True
-
-    if user.role in ["OWNER", "ADMIN"]:
         return True
 
     return CompanyMembership.objects.filter(
@@ -75,7 +69,7 @@ class CompanyListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             return (
                 Company.objects
                 .prefetch_related("enabled_currencies")
@@ -105,11 +99,7 @@ class CompanyListCreateView(generics.ListCreateAPIView):
             user=self.request.user,
             company=company,
             defaults={
-                "role": (
-                    "OWNER"
-                    if self.request.user.role == "OWNER"
-                    else "ADMIN"
-                )
+                "role": CompanyMembership.Role.OWNER
             },
         )
 
@@ -127,6 +117,7 @@ class CompanyListCreateView(generics.ListCreateAPIView):
         create_default_accounts(company)
 
 
+
 class CompanyDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = CompanySerializer
     permission_classes = [
@@ -142,7 +133,7 @@ class CompanyDetailView(generics.RetrieveUpdateAPIView):
             .prefetch_related("enabled_currencies")
         )
 
-        if user.is_superuser or user.role in ["OWNER", "ADMIN"]:
+        if user.is_superuser:
             return queryset
 
         return queryset.filter(
@@ -507,6 +498,17 @@ class CompanyWorkspaceView(APIView):
         permissions.IsAuthenticated,
     ]
 
+    def _subscription_payload(self, company):
+        from subscriptions.models import Subscription
+        from subscriptions.serializers import SubscriptionSerializer
+
+        subscription = (
+            Subscription.objects.select_related("plan")
+            .filter(company=company)
+            .first()
+        )
+        return SubscriptionSerializer(subscription).data if subscription else None
+
     def get(self, request, pk):
         company = get_company_for_request(
             request,
@@ -534,12 +536,22 @@ class CompanyWorkspaceView(APIView):
             )
         )
 
+        current_membership = CompanyMembership.objects.filter(
+            user=request.user,
+            company=company,
+            is_active=True,
+        ).select_related("user").first()
+
         return Response(
             {
                 "company": CompanySerializer(
                     company,
                     context={"request": request},
                 ).data,
+                "membership": (
+                    CompanyMembershipSerializer(current_membership).data
+                    if current_membership else None
+                ),
                 "functional_currency": company.currency,
                 "default_workspace_currency": company.default_workspace_currency,
                 "currencies": CompanyCurrencySerializer(
@@ -550,6 +562,180 @@ class CompanyWorkspaceView(APIView):
                     rates,
                     many=True,
                 ).data,
+                "subscription": self._subscription_payload(company),
             },
             status=status.HTTP_200_OK,
         )
+
+
+class CompanyMemberListCreateView(APIView):
+    """
+    Manage users belonging to one organization. A subscription is attached
+    to the company, so every active member shares the same plan entitlements.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _company_and_actor_membership(self, request, pk):
+        company = get_company_for_request(request, pk)
+        actor_membership = CompanyMembership.objects.filter(
+            user=request.user, company=company, is_active=True
+        ).first()
+        if not request.user.is_superuser and (
+            not actor_membership or actor_membership.role not in {
+                CompanyMembership.Role.OWNER,
+                CompanyMembership.Role.ADMIN,
+            }
+        ):
+            raise PermissionDenied(
+                "Only an organization owner or administrator can manage team members."
+            )
+        return company, actor_membership
+
+    def get(self, request, pk):
+        company = get_company_for_request(request, pk)
+        if not request.user.is_superuser and not CompanyMembership.objects.filter(
+            user=request.user, company=company, is_active=True
+        ).exists():
+            raise PermissionDenied("You do not have access to this organization.")
+        memberships = (
+            CompanyMembership.objects.filter(company=company)
+            .select_related("user")
+            .order_by("role", "user__first_name", "user__username")
+        )
+        return Response(CompanyMembershipSerializer(memberships, many=True).data)
+
+    def post(self, request, pk):
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.db import transaction
+
+        company, actor_membership = self._company_and_actor_membership(request, pk)
+        User = get_user_model()
+
+        username = (request.data.get("username") or "").strip()
+        email = (request.data.get("email") or "").strip().lower()
+        first_name = (request.data.get("first_name") or "").strip()
+        last_name = (request.data.get("last_name") or "").strip()
+        password = request.data.get("password") or ""
+        role = (request.data.get("role") or CompanyMembership.Role.ACCOUNTANT).upper()
+
+        if role not in CompanyMembership.Role.values:
+            raise ValidationError({"role": "Select a valid organization role."})
+        if actor_membership and actor_membership.role == CompanyMembership.Role.ADMIN and role == CompanyMembership.Role.OWNER:
+            raise PermissionDenied("Only an organization owner can assign the Owner role.")
+        if not username and not email:
+            raise ValidationError({"username": "Provide a username or email address."})
+
+        with transaction.atomic():
+            user = None
+            if email:
+                user = User.objects.filter(email__iexact=email).first()
+            if user is None and username:
+                user = User.objects.filter(username__iexact=username).first()
+
+            if user is not None and not user.is_active:
+                raise ValidationError({"email": "This user account is inactive. Reactivate it before adding it to an organization."})
+
+            created = False
+            if user is None:
+                if not username:
+                    username = email
+                if not password:
+                    raise ValidationError({"password": "A password is required for a new user."})
+                candidate_user = User(username=username, email=email)
+                try:
+                    validate_password(password, candidate_user)
+                except DjangoValidationError as exc:
+                    raise ValidationError({"password": exc.messages})
+                if User.objects.filter(username__iexact=username).exists():
+                    raise ValidationError({"username": "This username is already in use."})
+                user = User.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name,
+                    role=role,
+                )
+                created = True
+            elif not email:
+                email = user.email
+
+            membership, was_created = CompanyMembership.objects.get_or_create(
+                user=user,
+                company=company,
+                defaults={"role": role, "is_active": True},
+            )
+            if not was_created:
+                raise ValidationError({"user": "This user is already a member of this organization."})
+
+        data = CompanyMembershipSerializer(membership).data
+        data["user_created"] = created
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class CompanyMemberDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk, membership_id):
+        company = get_company_for_request(request, pk)
+        actor = CompanyMembership.objects.filter(
+            user=request.user, company=company, is_active=True
+        ).first()
+        if not request.user.is_superuser and (
+            not actor or actor.role not in {
+                CompanyMembership.Role.OWNER,
+                CompanyMembership.Role.ADMIN,
+            }
+        ):
+            raise PermissionDenied("Only an organization owner or administrator can manage team members.")
+
+        membership = get_object_or_404(
+            CompanyMembership.objects.select_related("user"),
+            pk=membership_id,
+            company=company,
+        )
+
+        original_role = membership.role
+        original_active = membership.is_active
+        requested_role = original_role
+        requested_active = original_active
+
+        if "role" in request.data:
+            requested_role = str(request.data["role"]).upper()
+            if requested_role not in CompanyMembership.Role.values:
+                raise ValidationError({"role": "Select a valid organization role."})
+
+        if "is_active" in request.data:
+            requested_active = bool(request.data["is_active"])
+
+        if actor and actor.role == CompanyMembership.Role.ADMIN and (
+            requested_role == CompanyMembership.Role.OWNER
+            or original_role == CompanyMembership.Role.OWNER
+        ):
+            raise PermissionDenied("Only an organization owner can assign or change an Owner role.")
+
+        # Never allow an organization to remove or demote its last active Owner,
+        # including when role and active status are changed in the same request.
+        was_active_owner = (
+            original_role == CompanyMembership.Role.OWNER and original_active
+        )
+        remains_active_owner = (
+            requested_role == CompanyMembership.Role.OWNER and requested_active
+        )
+        if was_active_owner and not remains_active_owner:
+            remaining_owners = CompanyMembership.objects.filter(
+                company=company,
+                role=CompanyMembership.Role.OWNER,
+                is_active=True,
+            ).exclude(pk=membership.pk).count()
+            if remaining_owners == 0:
+                raise ValidationError({
+                    "role": "An organization must have at least one active Owner."
+                })
+
+        membership.role = requested_role
+        membership.is_active = requested_active
+        membership.save(update_fields=["role", "is_active"])
+        return Response(CompanyMembershipSerializer(membership).data)

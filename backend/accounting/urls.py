@@ -1,4 +1,5 @@
 from django.urls import path
+from subscriptions.permissions import feature_view
 
 from .views import (
     AccountDetailView,
@@ -27,13 +28,13 @@ urlpatterns = [
 
     path(
         "accounts/",
-        AccountListCreateView.as_view(),
+        feature_view(AccountListCreateView, "core_accounting"),
         name="account-list-create",
     ),
 
     path(
         "accounts/<int:pk>/",
-        AccountDetailView.as_view(),
+        feature_view(AccountDetailView, "core_accounting"),
         name="account-detail",
     ),
 
@@ -43,19 +44,19 @@ urlpatterns = [
 
     path(
         "journal-entries/",
-        JournalEntryListCreateView.as_view(),
+        feature_view(JournalEntryListCreateView, "core_accounting"),
         name="journal-entry-list-create",
     ),
 
     path(
         "journal-entries/<int:pk>/",
-        JournalEntryDetailView.as_view(),
+        feature_view(JournalEntryDetailView, "core_accounting"),
         name="journal-entry-detail",
     ),
 
     path(
         "journal-entries/<int:pk>/post/",
-        JournalEntryPostView.as_view(),
+        feature_view(JournalEntryPostView, "core_accounting"),
         name="journal-entry-post",
     ),
 
@@ -65,31 +66,31 @@ urlpatterns = [
 
     path(
         "reports/general-ledger/",
-        GeneralLedgerView.as_view(),
+        feature_view(GeneralLedgerView, "core_accounting"),
         name="general-ledger",
     ),
 
     path(
         "reports/trial-balance/",
-        TrialBalanceView.as_view(),
+        feature_view(TrialBalanceView, "core_accounting"),
         name="trial-balance",
     ),
 
     path(
         "reports/income-statement/",
-        IncomeStatementView.as_view(),
+        feature_view(IncomeStatementView, "core_accounting"),
         name="income-statement",
     ),
 
     path(
         "reports/balance-sheet/",
-        BalanceSheetView.as_view(),
+        feature_view(BalanceSheetView, "core_accounting"),
         name="balance-sheet",
     ),
 
     path(
         "reports/cash-flow/",
-        CashFlowStatementView.as_view(),
+        feature_view(CashFlowStatementView, "core_accounting"),
         name="cash-flow",
     ),
 
@@ -99,31 +100,31 @@ urlpatterns = [
 
     path(
         "reports/general-ledger/pdf/",
-        GeneralLedgerPDFView.as_view(),
+        feature_view(GeneralLedgerPDFView, "core_accounting"),
         name="general-ledger-pdf",
     ),
 
     path(
         "reports/trial-balance/pdf/",
-        TrialBalancePDFView.as_view(),
+        feature_view(TrialBalancePDFView, "core_accounting"),
         name="trial-balance-pdf",
     ),
 
     path(
         "reports/income-statement/pdf/",
-        IncomeStatementPDFView.as_view(),
+        feature_view(IncomeStatementPDFView, "core_accounting"),
         name="income-statement-pdf",
     ),
 
     path(
         "reports/balance-sheet/pdf/",
-        BalanceSheetPDFView.as_view(),
+        feature_view(BalanceSheetPDFView, "core_accounting"),
         name="balance-sheet-pdf",
     ),
 
     path(
         "reports/cash-flow/pdf/",
-        CashFlowPDFView.as_view(),
+        feature_view(CashFlowPDFView, "core_accounting"),
         name="cash-flow-pdf",
     ),
 
